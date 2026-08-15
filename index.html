@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Main Thread Bench</title>
+<style>
+  :root {
+    --paper: #EDEFF0;
+    --paper-deep: #E2E6E8;
+    --ink: #14181A;
+    --ink-soft: #55636A;
+    --rule: #C2CBCF;
+    --block: #C81E3A;
+    --yield: #1B5FA8;
+    --warn: #A8730A;
+    --readout: 15px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0;
+    min-height: 100vh;
+  }
+
+  @media (max-width: 900px) {
+    body { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .panel { padding: 22px 26px; }
+
+  .panel--left {
+    border-right: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .panel--right {
+    background: var(--paper-deep);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  h1 {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin: 0 0 2px;
+  }
+
+  .sub {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: 0;
+    letter-spacing: 0.04em;
+  }
+
+  fieldset {
+    border: 1px solid var(--rule);
+    padding: 12px 14px 14px;
+    margin: 0;
+  }
+
+  legend {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    padding: 0 6px;
+  }
+
+  label { display: block; font-size: 12px; margin-bottom: 4px; color: var(--ink-soft); }
+
+  select, input[type="range"], input[type="text"], button {
+    font: inherit;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 0;
+    width: 100%;
+    padding: 7px 9px;
+  }
+
+  input[type="range"] { padding: 0; }
+
+  button { cursor: pointer; text-align: left; }
+  button:hover { background: #fff; }
+
+  :focus-visible { outline: 2px solid var(--yield); outline-offset: 2px; }
+
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .filter {
+    font-size: 20px;
+    padding: 12px 14px;
+    background: #fff;
+  }
+
+  .echo {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-top: 8px;
+    min-height: 18px;
+  }
+
+  .flash { animation: flash 260ms ease-out; }
+  @keyframes flash { from { background: #FFF3B0; } to { background: #fff; } }
+  @media (prefers-reduced-motion: reduce) { .flash { animation: none; } }
+
+  ul.list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--rule);
+    background: #fff;
+    height: 190px;
+    overflow: auto;
+    font-size: 13px;
+  }
+
+  ul.list li { padding: 3px 10px; border-bottom: 1px solid #EEF1F2; }
+
+  canvas { width: 100%; height: 120px; display: block; border: 1px solid var(--rule); background: #fff; }
+
+  .readout { font-size: var(--readout); }
+
+  .metric {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: baseline;
+  }
+
+  .metric:last-child { border-bottom: 0; }
+  .metric span:first-child { color: var(--ink-soft); font-size: 0.8em; letter-spacing: 0.04em; }
+  .metric span:last-child { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+  .big { font-size: 1.9em; }
+  .is-block { color: var(--block); }
+  .is-yield { color: var(--yield); }
+  .is-none { color: var(--ink-soft); font-weight: 400; }
+
+  .note {
+    font-size: 12px;
+    padding: 9px 11px;
+    border-left: 3px solid var(--warn);
+    background: #fff;
+    color: var(--ink);
+    display: none;
+  }
+  .note.on { display: block; }
+
+  .scripts {
+    font-size: 0.78em;
+    background: #fff;
+    border: 1px solid var(--rule);
+    padding: 9px 11px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    min-height: 76px;
+    color: var(--ink-soft);
+  }
+
+  .unsupported { color: var(--block); }
+
+  body.recording .panel--left fieldset.controls { display: none; }
+  body.recording { --readout: 26px; }
+</style>
+</head>
+<body>
+
+<section class="panel panel--left">
+  <div>
+    <h1>Main Thread Bench</h1>
+    <p class="sub">Type in the filter. Every keystroke schedules the same work a different way.</p>
+  </div>
+
+  <div>
+    <input class="filter" id="filter" type="text" placeholder="Type here" autocomplete="off" spellcheck="false">
+    <div class="echo">
+      <span id="echo">Waiting for input</span>
+      <span id="matches"></span>
+    </div>
+    <ul class="list" id="list" aria-live="off"></ul>
+  </div>
+
+  <div>
+    <canvas id="chart" width="1200" height="240" aria-label="Frame durations, newest on the right"></canvas>
+    <div class="echo">
+      <span>Frame duration, newest right. Red is over 50 ms.</span>
+      <span id="fps"></span>
+    </div>
+  </div>
+
+  <fieldset class="controls">
+    <legend>Bench</legend>
+    <label for="mode">Scheduling</label>
+    <select id="mode">
+      <option value="block">1. Block: run it all in the handler</option>
+      <option value="timeout">2. Chunk with setTimeout(0)</option>
+      <option value="yield">3. Chunk with scheduler.yield()</option>
+      <option value="raf">4. Chunk with requestAnimationFrame (the trap)</option>
+      <option value="raftimeout">5. requestAnimationFrame then setTimeout</option>
+    </select>
+
+    <div class="row" style="margin-top:12px">
+      <div>
+        <label for="taskMs">Work per keystroke: <b id="taskMsOut">300</b> ms</label>
+        <input id="taskMs" type="range" min="40" max="600" step="20" value="300">
+      </div>
+      <div>
+        <label for="chunkMs">Chunk budget: <b id="chunkMsOut">8</b> ms</label>
+        <input id="chunkMs" type="range" min="2" max="50" step="2" value="8">
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <button id="clickWork" type="button">Run once from a click</button>
+      <button id="reset" type="button">Reset readings</button>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <button id="record" type="button">Recording view (bigger type)</button>
+      <button id="support" type="button">What this browser supports</button>
+    </div>
+  </fieldset>
+</section>
+
+<section class="panel panel--right">
+  <div>
+    <h1>Readout</h1>
+    <p class="sub">Event Timing and Long Animation Frames, live.</p>
+  </div>
+
+  <div class="readout">
+    <div class="metric">
+      <span>INP, default threshold (104 ms)</span>
+      <span class="big is-none" id="inpDefault">none</span>
+    </div>
+    <div class="metric">
+      <span>INP, threshold lowered to 16 ms</span>
+      <span class="big" id="inpLow">none</span>
+    </div>
+    <div class="metric">
+      <span>Interactions counted, default / 16 ms</span>
+      <span id="counts">0 / 0</span>
+    </div>
+  </div>
+
+  <div class="note" id="thresholdNote">
+    The default panel reads nothing while the lowered one has readings. Event Timing ignores anything under
+    <b>104 ms</b> unless you ask for less, so a panel built on the defaults reports a healthy page.
+  </div>
+
+  <div class="readout">
+    <div class="metric">
+      <span>Longest animation frame</span>
+      <span id="loafDuration">none</span>
+    </div>
+    <div class="metric">
+      <span>blockingDuration</span>
+      <span id="loafBlocking">none</span>
+    </div>
+    <div class="metric">
+      <span>Render began at</span>
+      <span id="loafRender">none</span>
+    </div>
+    <div class="metric">
+      <span>Style and layout began at</span>
+      <span id="loafStyle">none</span>
+    </div>
+  </div>
+
+  <div>
+    <p class="sub" style="margin-bottom:6px">Attributed script</p>
+    <div class="scripts" id="loafScripts">Nothing recorded yet.</div>
+  </div>
+
+  <div class="scripts" id="supportOut" style="min-height:0"></div>
+</section>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const filter = $('filter');
+  const list = $('list');
+  const echo = $('echo');
+  const matches = $('matches');
+
+  // ---------------------------------------------------------------------
+  // Content. Enough rows that filtering is real work, few enough that the
+  // DOM update is not what we are measuring.
+  // ---------------------------------------------------------------------
+  const WORDS = ['thread', 'paint', 'layout', 'style', 'input', 'scroll', 'keypress', 'frame',
+    'queue', 'task', 'yield', 'render', 'commit', 'raster', 'observer', 'handler', 'budget',
+    'latency', 'percentile', 'interaction', 'schedule', 'block', 'defer', 'idle', 'worker'];
+
+  const rows = Array.from({ length: 400 }, (_, i) => {
+    const a = WORDS[i % WORDS.length];
+    const b = WORDS[(i * 7 + 3) % WORDS.length];
+    return `${String(i).padStart(3, '0')}  ${a}-${b}`;
+  });
+
+  function paintList(query) {
+    const q = query.trim().toLowerCase();
+    const found = q ? rows.filter((r) => r.toLowerCase().includes(q)) : rows;
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < Math.min(found.length, 120); i++) {
+      const li = document.createElement('li');
+      li.textContent = found[i];
+      frag.appendChild(li);
+    }
+    list.replaceChildren(frag);
+    matches.textContent = `${found.length} rows`;
+  }
+
+  paintList('');
+
+  // ---------------------------------------------------------------------
+  // Synthetic work. A busy loop is the honest stand-in here: it occupies
+  // the thread the same way a large JSON.parse or a sort does, and it is
+  // the same cost on every run so the modes stay comparable.
+  // ---------------------------------------------------------------------
+  const UNIT_MS = 2;
+
+  function burn(ms) {
+    const end = performance.now() + ms;
+    let sink = 0;
+    while (performance.now() < end) {
+      for (let i = 0; i < 2000; i++) sink += Math.sqrt(i * 1.0001);
+    }
+    return sink;
+  }
+
+  // ---------------------------------------------------------------------
+  // Yield strategies. Only this object changes between the five modes.
+  // ---------------------------------------------------------------------
+  const hasYield = typeof globalThis.scheduler?.yield === 'function';
+
+  const handBack = {
+    timeout: () => new Promise((r) => setTimeout(r, 0)),
+    yield: () => (hasYield ? scheduler.yield() : new Promise((r) => setTimeout(r, 0))),
+    raf: () => new Promise((r) => requestAnimationFrame(() => r())),
+    raftimeout: () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)))
+  };
+
+  let runToken = 0;
+
+  async function doWork(mode, totalMs, chunkMs) {
+    const units = Math.max(1, Math.round(totalMs / UNIT_MS));
+
+    if (mode === 'block') {
+      burn(totalMs);
+      return;
+    }
+
+    const token = ++runToken;
+    const give = handBack[mode];
+    let spent = 0;
+
+    for (let i = 0; i < units; i++) {
+      burn(UNIT_MS);
+      spent += UNIT_MS;
+      if (spent >= chunkMs && i < units - 1) {
+        spent = 0;
+        await give();
+        // A newer keystroke has started its own run, so this one stops.
+        if (token !== runToken) return;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // The interaction. The cheap visual response happens first in every
+  // mode. What differs is only when the expensive work is allowed to run,
+  // which is the whole argument of the talk.
+  // ---------------------------------------------------------------------
+  function onInteraction(query) {
+    const mode = $('mode').value;
+    const totalMs = Number($('taskMs').value);
+    const chunkMs = Number($('chunkMs').value);
+
+    paintList(query);
+    echo.textContent = `Responded to "${query.slice(-24) || 'click'}"`;
+    filter.classList.remove('flash');
+    void filter.offsetWidth;
+    filter.classList.add('flash');
+
+    doWork(mode, totalMs, chunkMs);
+  }
+
+  filter.addEventListener('input', (e) => onInteraction(e.target.value));
+  $('clickWork').addEventListener('click', () => onInteraction(filter.value));
+
+  // ---------------------------------------------------------------------
+  // Event Timing, observed twice. The only difference between the two
+  // observers is durationThreshold.
+  // ---------------------------------------------------------------------
+  function makeInpTracker(threshold, onUpdate) {
+    const perInteraction = new Map();
+    let supported = true;
+
+    try {
+      new PerformanceObserver((entryList) => {
+        for (const entry of entryList.getEntries()) {
+          const id = entry.interactionId;
+          if (!id) continue; // Not an interaction, so it is not INP material.
+          const prev = perInteraction.get(id) || 0;
+          if (entry.duration > prev) perInteraction.set(id, entry.duration);
+        }
+        onUpdate(perInteraction);
+      }).observe({ type: 'event', buffered: true, durationThreshold: threshold });
+    } catch (err) {
+      supported = false;
+    }
+
+    return { perInteraction, supported, clear: () => perInteraction.clear() };
+  }
+
+  function worstOf(map) {
+    let worst = 0;
+    for (const v of map.values()) if (v > worst) worst = v;
+    return worst;
+  }
+
+  function renderInp() {
+    const dWorst = worstOf(defaultTracker.perInteraction);
+    const lWorst = worstOf(lowTracker.perInteraction);
+    const dCount = defaultTracker.perInteraction.size;
+    const lCount = lowTracker.perInteraction.size;
+
+    const dEl = $('inpDefault');
+    const lEl = $('inpLow');
+
+    dEl.textContent = dCount ? `${Math.round(dWorst)} ms` : 'none';
+    dEl.className = 'big ' + (dCount ? (dWorst > 200 ? 'is-block' : 'is-yield') : 'is-none');
+
+    lEl.textContent = lCount ? `${Math.round(lWorst)} ms` : 'none';
+    lEl.className = 'big ' + (lCount ? (lWorst > 200 ? 'is-block' : 'is-yield') : 'is-none');
+
+    $('counts').textContent = `${dCount} / ${lCount}`;
+    $('thresholdNote').classList.toggle('on', lCount > 0 && dCount === 0);
+  }
+
+  const defaultTracker = makeInpTracker(104, renderInp);
+  const lowTracker = makeInpTracker(16, renderInp);
+
+  // ---------------------------------------------------------------------
+  // Long Animation Frames. This is what names the offending function.
+  // Chromium only at the time of writing.
+  // ---------------------------------------------------------------------
+  let loafSupported = true;
+  let worstLoaf = null;
+
+  function shortUrl(url) {
+    if (!url) return '(no source)';
+    try { return new URL(url).pathname.split('/').pop() || url; } catch { return url; }
+  }
+
+  function renderLoaf(entry) {
+    $('loafDuration').textContent = `${Math.round(entry.duration)} ms`;
+    $('loafDuration').className = entry.duration > 50 ? 'is-block' : '';
+    $('loafBlocking').textContent = `${Math.round(entry.blockingDuration)} ms`;
+    $('loafRender').textContent = `+${Math.round(entry.renderStart - entry.startTime)} ms`;
+    $('loafStyle').textContent = entry.styleAndLayoutStart
+      ? `+${Math.round(entry.styleAndLayoutStart - entry.startTime)} ms`
+      : 'not reached';
+
+    const scripts = [...(entry.scripts || [])].sort((a, b) => b.duration - a.duration).slice(0, 3);
+    $('loafScripts').textContent = scripts.length
+      ? scripts.map((s) =>
+          `${Math.round(s.duration)} ms  ${s.invoker || '(unknown invoker)'}\n` +
+          `        ${shortUrl(s.sourceURL)}  char ${s.sourceCharPosition ?? '?'}` +
+          (s.sourceFunctionName ? `  in ${s.sourceFunctionName}()` : '')
+        ).join('\n\n')
+      : 'Frame recorded, but no script attribution in it.';
+  }
+
+  try {
+    new PerformanceObserver((entryList) => {
+      for (const entry of entryList.getEntries()) {
+        if (!worstLoaf || entry.duration > worstLoaf.duration) {
+          worstLoaf = entry;
+          renderLoaf(entry);
+        }
+      }
+    }).observe({ type: 'long-animation-frame', buffered: true });
+  } catch (err) {
+    loafSupported = false;
+    $('loafScripts').innerHTML = '<span class="unsupported">Long Animation Frames are not available in this browser. Record in Chrome or Edge.</span>';
+  }
+
+  // ---------------------------------------------------------------------
+  // Frame strip chart. Drawing in requestAnimationFrame is right here,
+  // because this genuinely is visual work tied to the next paint.
+  // ---------------------------------------------------------------------
+  const chart = $('chart');
+  const ctx = chart.getContext('2d');
+  const SLOTS = 240;
+  const deltas = new Float32Array(SLOTS);
+  let head = 0;
+  let last = performance.now();
+  let frames = 0;
+  let fpsAt = last;
+
+  function draw(now) {
+    const delta = now - last;
+    last = now;
+    deltas[head] = delta;
+    head = (head + 1) % SLOTS;
+
+    frames++;
+    if (now - fpsAt > 500) {
+      $('fps').textContent = `${Math.round((frames * 1000) / (now - fpsAt))} fps`;
+      frames = 0;
+      fpsAt = now;
+    }
+
+    const w = chart.width;
+    const h = chart.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // Rule at the 50 ms line.
+    const scale = h / 120;
+    ctx.strokeStyle = '#C2CBCF';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, h - 50 * scale);
+    ctx.lineTo(w, h - 50 * scale);
+    ctx.stroke();
+
+    const barW = w / SLOTS;
+    for (let i = 0; i < SLOTS; i++) {
+      const d = deltas[(head + i) % SLOTS];
+      if (!d) continue;
+      const bh = Math.min(h, d * scale);
+      ctx.fillStyle = d > 50 ? '#C81E3A' : d > 20 ? '#A8730A' : '#1B5FA8';
+      ctx.fillRect(i * barW, h - bh, Math.max(1, barW - 1), bh);
+    }
+
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+
+  // ---------------------------------------------------------------------
+  // Controls
+  // ---------------------------------------------------------------------
+  $('taskMs').addEventListener('input', (e) => { $('taskMsOut').textContent = e.target.value; });
+  $('chunkMs').addEventListener('input', (e) => { $('chunkMsOut').textContent = e.target.value; });
+
+  $('reset').addEventListener('click', () => {
+    defaultTracker.clear();
+    lowTracker.clear();
+    worstLoaf = null;
+    renderInp();
+    $('loafDuration').textContent = 'none';
+    $('loafDuration').className = '';
+    $('loafBlocking').textContent = 'none';
+    $('loafRender').textContent = 'none';
+    $('loafStyle').textContent = 'none';
+    if (loafSupported) $('loafScripts').textContent = 'Nothing recorded yet.';
+    deltas.fill(0);
+  });
+
+  $('record').addEventListener('click', () => {
+    document.body.classList.toggle('recording');
+  });
+
+  $('support').addEventListener('click', () => {
+    const lines = [
+      `scheduler.yield()        ${hasYield ? 'available' : 'missing, falling back to setTimeout(0)'}`,
+      `Long Animation Frames    ${loafSupported ? 'available' : 'missing'}`,
+      `Event Timing             ${defaultTracker.supported ? 'available' : 'missing'}`,
+      `requestIdleCallback      ${'requestIdleCallback' in window ? 'available' : 'missing'}`,
+      `isInputPending           ${navigator.scheduling?.isInputPending ? 'available' : 'missing'}`
+    ];
+    $('supportOut').textContent = lines.join('\n');
+  });
+
+  renderInp();
+})();
+</script>
+</body>
+</html>
