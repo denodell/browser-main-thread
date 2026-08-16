@@ -6,297 +6,742 @@
 <title>Main Thread Bench</title>
 <style>
   :root {
-    --paper: #EDEFF0;
-    --paper-deep: #E2E6E8;
-    --ink: #14181A;
-    --ink-soft: #55636A;
-    --rule: #C2CBCF;
-    --block: #C81E3A;
-    --yield: #1B5FA8;
-    --warn: #A8730A;
-    --readout: 15px;
+    /* Instrumentation ground: cool, flat, a step darker than the product
+       panel, which stays warm and slightly raised. The two surfaces are
+       told apart by temperature and elevation, not just by lightness. */
+    --bg: #DADFE0;
+    --fg: #0F1214;
+    --fg-dim: #3F4749;
+    --fg-faint: #636C6F;
+    --line: rgba(15, 18, 20, 0.22);
+    --line-soft: rgba(15, 18, 20, 0.1);
+    --signal: #A32414;
+    --flash: rgba(15, 18, 20, 0.10);
+    --field: transparent;
+
+    /* Read back by the canvas so the plot follows the same palette. */
+    --bar-low: rgba(15, 18, 20, 0.45);
+    --bar-mid: rgba(15, 18, 20, 0.88);
+    --bar-high: #A32414;
+    --rule-frame: rgba(15, 18, 20, 0.2);
+    --rule-long: rgba(15, 18, 20, 0.34);
+    --rule-peak: rgba(163, 36, 20, 0.7);
+    --sans: ui-sans-serif, -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    --big: clamp(2.5rem, 5vw, 4rem);
+    --pad: clamp(20px, 3vw, 44px);
+    --gutter: clamp(20px, 3vw, 44px);
+    --axis: 38px;
+    --ceiling: 120;
   }
 
   * { box-sizing: border-box; }
 
-  html, body {
-    margin: 0;
-    background: var(--paper);
-    color: var(--ink);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 15px;
-    line-height: 1.45;
-  }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
   body {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 0;
+    margin: 0;
     min-height: 100vh;
+    min-height: 100dvh;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    display: grid;
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   }
 
-  @media (max-width: 900px) {
-    body { grid-template-columns: minmax(0, 1fr); }
+  ::selection { background: var(--fg); color: var(--bg); }
+
+  :focus-visible { outline: 1px solid var(--fg); outline-offset: 3px; }
+
+  /* On a real viewport the filter, the chart and the controls stay pinned,
+     and only the readouts below them scroll: you can always type and watch. */
+  /* Spare height belongs to the last band, so its rule meets the controls
+     instead of leaving a void between them. */
+  main { display: flex; flex-direction: column; }
+  main > .detail { flex: 1 0 auto; align-content: start; }
+
+  @media (min-width: 901px) {
+    body { height: 100vh; height: 100dvh; }
+    main { overflow-y: auto; scrollbar-width: thin; }
   }
 
-  .panel { padding: 22px 26px; }
+  /* ------------------------------------------------------------------ */
+  /* Masthead                                                            */
+  /* ------------------------------------------------------------------ */
 
-  .panel--left {
-    border-right: 1px solid var(--rule);
+  /* Sits between the product panel and the readouts, so it needs the same
+     closing rule every band below it has. */
+  .masthead {
     display: flex;
-    flex-direction: column;
-    gap: 20px;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 24px;
+    padding: calc(var(--pad) * 0.45) var(--pad);
+    border-bottom: 1px solid var(--line);
   }
 
-  .panel--right {
-    background: var(--paper-deep);
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-  }
-
-  h1 {
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    margin: 0 0 2px;
-  }
-
-  .sub {
+  .wordmark {
     font-size: 12px;
-    color: var(--ink-soft);
-    margin: 0;
-    letter-spacing: 0.04em;
-  }
-
-  fieldset {
-    border: 1px solid var(--rule);
-    padding: 12px 14px 14px;
-    margin: 0;
-  }
-
-  legend {
-    font-size: 10px;
-    letter-spacing: 0.2em;
+    font-weight: 500;
+    letter-spacing: 0.36em;
     text-transform: uppercase;
-    color: var(--ink-soft);
-    padding: 0 6px;
+    margin: 0;
   }
 
-  label { display: block; font-size: 12px; margin-bottom: 4px; color: var(--ink-soft); }
-
-  select, input[type="range"], input[type="text"], button {
-    font: inherit;
-    color: var(--ink);
-    background: var(--paper);
-    border: 1px solid var(--rule);
-    border-radius: 0;
-    width: 100%;
-    padding: 7px 9px;
+  .masthead__meta {
+    display: flex;
+    gap: clamp(14px, 3vw, 36px);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
   }
 
-  input[type="range"] { padding: 0; }
+  /* ------------------------------------------------------------------ */
+  /* Shared type                                                         */
+  /* ------------------------------------------------------------------ */
 
-  button { cursor: pointer; text-align: left; }
-  button:hover { background: #fff; }
-
-  :focus-visible { outline: 2px solid var(--yield); outline-offset: 2px; }
-
-  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-
-  .filter {
-    font-size: 20px;
-    padding: 12px 14px;
-    background: #fff;
+  .eyebrow,
+  .key {
+    display: block;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin: 0 0 6px;
   }
 
-  .echo {
+  .caption {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    font-size: 12px;
-    color: var(--ink-soft);
-    margin-top: 8px;
-    min-height: 18px;
+    gap: 16px;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
+    min-height: 15px;
   }
 
-  .flash { animation: flash 260ms ease-out; }
-  @keyframes flash { from { background: #FFF3B0; } to { background: #fff; } }
+  /* ------------------------------------------------------------------ */
+  /* Frame chart                                                         */
+  /* ------------------------------------------------------------------ */
+
+  .frames {
+    padding: clamp(14px, 1.7vw, 21px) var(--pad);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .plot { position: relative; }
+
+  canvas {
+    width: 100%;
+    height: clamp(96px, 11.5vh, 140px);
+    display: block;
+  }
+
+  /* Scale sits in the gutter left of the plot, so it never collides with a
+     bar. Positions are derived from the same 120 ms ceiling the plot uses. */
+  .scale {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: var(--axis);
+    pointer-events: none;
+  }
+
+  .scale span {
+    position: absolute;
+    right: 12px;
+    bottom: calc(var(--v) * 100% / var(--ceiling));
+    transform: translateY(50%);
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scale span:first-child { top: 1px; bottom: auto; transform: none; }
+
+  .frames .caption { padding-top: 10px; }
+
+  /* ------------------------------------------------------------------ */
+  /* Bands                                                               */
+  /* ------------------------------------------------------------------ */
+
+  /* One four-column grid governs every instrumentation band, so column
+     edges stack down the page instead of landing a few pixels apart.
+     With the grid doing the work, the vertical rules are just clutter. */
+  .band {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    column-gap: var(--gutter);
+    row-gap: clamp(14px, 1.8vw, 22px);
+    padding: clamp(14px, 1.7vw, 21px) var(--pad);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .vitals > :last-child { grid-column: span 2; }
+  .detail > * { grid-column: span 2; }
+
+  /* ------------------------------------------------------------------ */
+  /* The filter band is the product, not the instrumentation. It is the  */
+  /* one thing on this page a user would ever see, so it gets the page   */
+  /* inverted: light ground, dark ink. Redefining the tokens flips every */
+  /* rule, hairline and placeholder inside it in one move.               */
+  /* ------------------------------------------------------------------ */
+
+  .work {
+    grid-template-columns: 1fr 1.618fr;
+    column-gap: var(--gutter);
+    background: #F5F3EF;
+    border-bottom: 0;
+    --bg: #F5F3EF;
+    --fg: #0B0B0B;
+    --fg-dim: #5E5E5A;
+    --fg-faint: #757570;
+    --line: rgba(11, 11, 11, 0.18);
+    --line-soft: rgba(11, 11, 11, 0.07);
+    --flash: rgba(11, 11, 11, 0.09);
+    --field: #FFFFFF;
+    --edge: rgba(11, 11, 11, 0.12);
+    color: var(--fg);
+    padding-top: clamp(16px, 1.8vw, 22px);
+    padding-bottom: clamp(16px, 1.8vw, 22px);
+    align-items: center;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Vitals — INP                                                        */
+  /* ------------------------------------------------------------------ */
+
+  .big {
+    display: block;
+    font-size: var(--big);
+    line-height: 0.94;
+    font-weight: 400;
+    letter-spacing: -0.045em;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+  }
+
+  .is-none { color: var(--fg-faint); }
+  .is-yield { color: var(--fg); }
+  .is-block { color: var(--signal); }
+
+  .counts {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .counts b { color: var(--fg); font-weight: 500; }
+
+  .caption b { color: var(--fg); font-weight: 500; }
+  .caption b.is-block { color: var(--signal); }
+
+  /* Toggled with visibility, not display: the punchline appears without
+     shoving the layout around mid-demo. */
+  .note {
+    margin: 12px 0 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--fg-dim);
+    padding-left: 14px;
+    border-left: 1px solid var(--signal);
+    max-width: 68ch;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 220ms ease;
+  }
+  .note.on { visibility: visible; opacity: 1; }
+  .note b { color: var(--fg); font-weight: 500; }
+  @media (prefers-reduced-motion: reduce) { .note { transition: none; } }
+
+  /* ------------------------------------------------------------------ */
+  /* Filter and results                                                  */
+  /* ------------------------------------------------------------------ */
+
+  /* The statement carries the panel: oversized, tight, ranged left, sized
+     to run out at roughly the height of the app beside it. */
+  .lede {
+    margin: 0;
+    max-width: 15ch;
+    font-size: clamp(1.4rem, 2.4vw, 2.2rem);
+    line-height: 1.1;
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+  }
+
+  /* The product surfaces sit slightly above the ground. The readouts below
+     are flat by contrast — that is the whole point of the split. */
+  .filter,
+  .results {
+    background: var(--field);
+    border: 1px solid var(--edge);
+    border-radius: 4px;
+    box-shadow: 0 1px 1px rgba(11, 11, 11, 0.03), 0 10px 24px -12px rgba(11, 11, 11, 0.18);
+  }
+
+  .field-wrap { position: relative; }
+
+  .filter {
+    width: 100%;
+    font: inherit;
+    font-size: clamp(1.05rem, 1.4vw, 1.25rem);
+    letter-spacing: -0.012em;
+    color: var(--fg);
+    padding: 16px 46px;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  .field-icon {
+    position: absolute;
+    left: 17px;
+    top: 50%;
+    width: 17px;
+    height: 17px;
+    transform: translateY(-50%);
+    color: var(--fg-faint);
+    pointer-events: none;
+    transition: color 160ms ease;
+  }
+
+  .field-wrap:focus-within .field-icon { color: var(--fg); }
+
+  /* Overrides the page's button styling: this one is an affordance inside a
+     field, not one of the bench's switches. */
+  .field-clear {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--fg-dim);
+  }
+
+  .field-clear[hidden] { display: none; }
+  .field-clear svg { width: 13px; height: 13px; }
+
+  .field-clear:hover {
+    background: rgba(11, 11, 11, 0.07);
+    border-color: transparent;
+    color: var(--fg);
+  }
+
+  .filter::placeholder { color: var(--fg-faint); }
+
+  .filter:focus {
+    outline: 0;
+    border-color: var(--fg);
+    box-shadow: 0 1px 1px rgba(11, 11, 11, 0.04), 0 14px 30px -14px rgba(11, 11, 11, 0.28);
+  }
+
+  .flash { animation: flash 320ms ease-out; }
+  @keyframes flash {
+    from { background: var(--flash); }
+    to { background: var(--field); }
+  }
   @media (prefers-reduced-motion: reduce) { .flash { animation: none; } }
+
+  .status {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    margin: 10px 2px 14px;
+    font-size: 13px;
+    color: var(--fg-dim);
+    min-height: 19px;
+  }
+
+  .results { padding: 3px 0; }
 
   ul.list {
     list-style: none;
     margin: 0;
     padding: 0;
-    border: 1px solid var(--rule);
-    background: #fff;
-    height: 190px;
+    height: clamp(96px, 11.5vh, 128px);
     overflow: auto;
-    font-size: 13px;
+    font-size: 15px;
+    letter-spacing: -0.005em;
+    scrollbar-width: thin;
+    scrollbar-color: var(--fg-faint) transparent;
+    /* Fades the rows, not the card: the mask is on the scroller inside. */
+    -webkit-mask-image: linear-gradient(to bottom, #000 84%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 84%, transparent 100%);
   }
 
-  ul.list li { padding: 3px 10px; border-bottom: 1px solid #EEF1F2; }
+  ul.list li {
+    padding: 9px 18px;
+    border-bottom: 1px solid var(--line-soft);
+    transition: background 120ms ease;
+  }
 
-  canvas { width: 100%; height: 120px; display: block; border: 1px solid var(--rule); background: #fff; }
+  ul.list li:last-child { border-bottom: 0; }
+  ul.list li:hover { background: rgba(11, 11, 11, 0.035); }
 
-  .readout { font-size: var(--readout); }
+  ul.list::-webkit-scrollbar { width: 3px; }
+  ul.list::-webkit-scrollbar-thumb { background: var(--fg-faint); }
 
-  .metric {
+  /* ------------------------------------------------------------------ */
+  /* Long animation frame detail                                         */
+  /* ------------------------------------------------------------------ */
+
+  /* Two columns with the band's own gutter, so these sit directly under
+     the two INP figures rather than on a rhythm of their own. */
+  .minis {
     display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 10px;
-    padding: 7px 0;
-    border-bottom: 1px solid var(--rule);
-    align-items: baseline;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--gutter);
+    row-gap: clamp(11px, 1.2vw, 14px);
   }
 
-  .metric:last-child { border-bottom: 0; }
-  .metric span:first-child { color: var(--ink-soft); font-size: 0.8em; letter-spacing: 0.04em; }
-  .metric span:last-child { font-variant-numeric: tabular-nums; font-weight: 700; }
-
-  .big { font-size: 1.9em; }
-  .is-block { color: var(--block); }
-  .is-yield { color: var(--yield); }
-  .is-none { color: var(--ink-soft); font-weight: 400; }
-
-  .note {
-    font-size: 12px;
-    padding: 9px 11px;
-    border-left: 3px solid var(--warn);
-    background: #fff;
-    color: var(--ink);
-    display: none;
+  .mini > span:first-child {
+    display: block;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin-bottom: 5px;
   }
-  .note.on { display: block; }
+
+  /* API names keep their camelCase — uppercasing them loses the word break. */
+  .mini > span.api {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: none;
+  }
+
+  .mini > span:last-child {
+    display: block;
+    font-size: clamp(1.05rem, 1.7vw, 1.5rem);
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+  }
+
+  /* Same weight as the rule above, so it has to come after it to win. */
+  .mini > span.is-block { color: var(--signal); }
 
   .scripts {
-    font-size: 0.78em;
-    background: #fff;
-    border: 1px solid var(--rule);
-    padding: 9px 11px;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--fg-dim);
     white-space: pre-wrap;
-    word-break: break-all;
-    min-height: 76px;
-    color: var(--ink-soft);
+    word-break: break-word;
+    max-height: 120px;
+    overflow: auto;
+    scrollbar-width: thin;
   }
 
-  .unsupported { color: var(--block); }
+  #supportOut { margin-top: 12px; }
+  #supportOut:empty { display: none; }
+  .unsupported { color: var(--signal); }
 
-  body.recording .panel--left fieldset.controls { display: none; }
-  body.recording { --readout: 26px; }
+  /* ------------------------------------------------------------------ */
+  /* Controls                                                            */
+  /* ------------------------------------------------------------------ */
+
+  .controls {
+    padding: clamp(14px, 1.6vw, 20px) var(--pad);
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    column-gap: var(--gutter);
+    align-items: start;
+  }
+
+  .actions { align-self: end; }
+
+  .field > label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin-bottom: 10px;
+  }
+
+  .field .value { white-space: nowrap; }
+  .field b { color: var(--fg); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+  .select { position: relative; }
+
+  .select::after {
+    content: "";
+    position: absolute;
+    right: 2px;
+    bottom: 12px;
+    width: 6px;
+    height: 6px;
+    border-right: 1px solid var(--fg-dim);
+    border-bottom: 1px solid var(--fg-dim);
+    transform: rotate(45deg);
+    pointer-events: none;
+  }
+
+  select {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    font: inherit;
+    font-size: 14px;
+    color: var(--fg);
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    padding: 0 24px 9px 0;
+    cursor: pointer;
+    transition: border-color 160ms ease;
+  }
+  select:hover { border-bottom-color: var(--fg); }
+  option { background: #FFFFFF; color: var(--fg); }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    background: transparent;
+    margin: 0;
+    padding: 6px 0 9px;
+    cursor: ew-resize;
+  }
+
+  input[type="range"]::-webkit-slider-runnable-track { height: 1px; background: var(--line); }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 9px;
+    height: 16px;
+    margin-top: -8px;
+    background: var(--fg);
+    border: 0;
+    border-radius: 0;
+  }
+  input[type="range"]::-moz-range-track { height: 1px; background: var(--line); }
+  input[type="range"]::-moz-range-thumb {
+    width: 9px;
+    height: 16px;
+    background: var(--fg);
+    border: 0;
+    border-radius: 0;
+  }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  button {
+    font: inherit;
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--fg);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 0;
+    padding: 9px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+  }
+
+  button:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+
+  /* ------------------------------------------------------------------ */
+  /* Recording view                                                      */
+  /* ------------------------------------------------------------------ */
+
+  body.recording .controls,
+  body.recording .lede { display: none; }
+  body.recording { --big: clamp(4rem, 9vw, 7.5rem); }
+  body.recording canvas { height: clamp(140px, 26vh, 280px); }
+  body.recording .mini > span:last-child { font-size: clamp(1.25rem, 2vw, 1.8rem); }
+
+  /* ------------------------------------------------------------------ */
+  /* Narrow                                                              */
+  /* ------------------------------------------------------------------ */
+
+  @media (max-width: 900px) {
+    /* Two columns wide enough for a figure each; anything wider spans. */
+    .band { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .work { grid-template-columns: minmax(0, 1fr); }
+    .vitals > :last-child,
+    .detail > * { grid-column: 1 / -1; }
+    .frames .caption { flex-direction: column; align-items: flex-start; gap: 5px; }
+    /* Reserving room for the note only pays off on the projector; on a
+       phone it just leaves a hole, and the page scrolls anyway. */
+    .note { display: none; }
+    .note.on { display: block; visibility: visible; opacity: 1; }
+    .minis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .controls .field:first-child,
+    .actions { grid-column: 1 / -1; }
+  }
 </style>
 </head>
 <body>
 
-<section class="panel panel--left">
-  <div>
-    <h1>Main Thread Bench</h1>
-    <p class="sub">Type in the filter. Every keystroke schedules the same work a different way.</p>
-  </div>
+<section class="band work">
+  <p class="lede"><em>Find your favorite authors.</em><br />Every keystroke schedules the same work a different way.</p>
 
-  <div>
-    <input class="filter" id="filter" type="text" placeholder="Type here" autocomplete="off" spellcheck="false">
-    <div class="echo">
+  <div class="app">
+    <div class="field-wrap">
+      <svg class="field-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <circle cx="6.75" cy="6.75" r="4.25" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
+        <path d="M10 10 L14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+      </svg>
+      <input class="filter" id="filter" type="text" placeholder="Filter authors"
+             aria-label="Filter authors" autocomplete="off" spellcheck="false">
+      <button class="field-clear" id="clearFilter" type="button" aria-label="Clear filter" hidden>
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path d="M4.5 4.5 L11.5 11.5 M11.5 4.5 L4.5 11.5" fill="none" stroke="currentColor"
+                stroke-width="1.5" stroke-linecap="round"></path>
+        </svg>
+      </button>
+    </div>
+    <div class="status">
       <span id="echo">Waiting for input</span>
       <span id="matches"></span>
     </div>
-    <ul class="list" id="list" aria-live="off"></ul>
-  </div>
-
-  <div>
-    <canvas id="chart" width="1200" height="240" aria-label="Frame durations, newest on the right"></canvas>
-    <div class="echo">
-      <span>Frame duration, newest right. Red is over 50 ms.</span>
-      <span id="fps"></span>
+    <div class="results">
+      <ul class="list" id="list" aria-live="off"></ul>
     </div>
   </div>
-
-  <fieldset class="controls">
-    <legend>Bench</legend>
-    <label for="mode">Scheduling</label>
-    <select id="mode">
-      <option value="block">1. Block: run it all in the handler</option>
-      <option value="timeout">2. Chunk with setTimeout(0)</option>
-      <option value="yield">3. Chunk with scheduler.yield()</option>
-      <option value="raf">4. Chunk with requestAnimationFrame (the trap)</option>
-      <option value="raftimeout">5. requestAnimationFrame then setTimeout</option>
-    </select>
-
-    <div class="row" style="margin-top:12px">
-      <div>
-        <label for="taskMs">Work per keystroke: <b id="taskMsOut">300</b> ms</label>
-        <input id="taskMs" type="range" min="40" max="600" step="20" value="300">
-      </div>
-      <div>
-        <label for="chunkMs">Chunk budget: <b id="chunkMsOut">8</b> ms</label>
-        <input id="chunkMs" type="range" min="2" max="50" step="2" value="8">
-      </div>
-    </div>
-
-    <div class="row" style="margin-top:12px">
-      <button id="clickWork" type="button">Run once from a click</button>
-      <button id="reset" type="button">Reset readings</button>
-    </div>
-
-    <div class="row" style="margin-top:12px">
-      <button id="record" type="button">Recording view (bigger type)</button>
-      <button id="support" type="button">What this browser supports</button>
-    </div>
-  </fieldset>
 </section>
 
-<section class="panel panel--right">
-  <div>
-    <h1>Readout</h1>
-    <p class="sub">Event Timing and Long Animation Frames, live.</p>
+<header class="masthead">
+  <h1 class="wordmark">Main Thread Bench</h1>
+  <div class="masthead__meta">
+    <span id="fps">&mdash;</span>
   </div>
+</header>
 
-  <div class="readout">
-    <div class="metric">
-      <span>INP, default threshold (104 ms)</span>
-      <span class="big is-none" id="inpDefault">none</span>
-    </div>
-    <div class="metric">
-      <span>INP, threshold lowered to 16 ms</span>
-      <span class="big" id="inpLow">none</span>
-    </div>
-    <div class="metric">
-      <span>Interactions counted, default / 16 ms</span>
-      <span id="counts">0 / 0</span>
+<section class="frames">
+  <div class="plot">
+    <canvas id="chart" width="1200" height="240" aria-label="Frame durations, newest on the right"></canvas>
+    <div class="scale" aria-hidden="true">
+      <span style="--v: 120">120</span>
+      <span style="--v: 50">50</span>
+      <span style="--v: 16.7">16.7</span>
     </div>
   </div>
+  <div class="caption">
+    <span>Frame duration in ms &middot; newest right &middot; red over 50 ms</span>
+    <span>10 s window &middot; peak <b id="peak">&mdash;</b></span>
+  </div>
+</section>
 
-  <div class="note" id="thresholdNote">
-    The default panel reads nothing while the lowered one has readings. Event Timing ignores anything under
-    <b>104 ms</b> unless you ask for less, so a panel built on the defaults reports a healthy page.
+<main>
+  <section class="band vitals">
+    <div>
+      <span class="key">INP &middot; default threshold 104 ms</span>
+      <span class="big is-none" id="inpDefault">&mdash;</span>
+    </div>
+
+    <div>
+      <span class="key">INP &middot; threshold lowered to 16 ms</span>
+      <span class="big is-none" id="inpLow">&mdash;</span>
+    </div>
+
+    <div>
+      <div class="counts">
+        <span>Interactions counted &middot; default / 16 ms</span>
+        <b id="counts">0 / 0</b>
+      </div>
+      <p class="note" id="thresholdNote">
+        Event Timing ignores anything under <b>104 ms</b> unless you ask for less, so a panel built on
+        the defaults reports a healthy page.
+      </p>
+    </div>
+  </section>
+
+  <section class="band detail">
+    <div>
+      <p class="eyebrow">Long animation frame</p>
+      <div class="minis">
+        <div class="mini">
+          <span>Longest frame</span>
+          <span id="loafDuration">&mdash;</span>
+        </div>
+        <div class="mini">
+          <span class="api">blockingDuration</span>
+          <span id="loafBlocking">&mdash;</span>
+        </div>
+        <div class="mini">
+          <span>Render began</span>
+          <span id="loafRender">&mdash;</span>
+        </div>
+        <div class="mini">
+          <span>Style &amp; layout began</span>
+          <span id="loafStyle">&mdash;</span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <p class="eyebrow">Attributed script</p>
+      <div class="scripts" id="loafScripts">Nothing recorded yet.</div>
+      <div class="scripts" id="supportOut"></div>
+    </div>
+  </section>
+</main>
+
+<section class="controls">
+  <div class="field select">
+    <label for="mode">Scheduling</label>
+    <select id="mode">
+      <option value="block">01 &mdash; Block: run it all in the handler</option>
+      <option value="timeout">02 &mdash; Chunk with setTimeout(0)</option>
+      <option value="yield">03 &mdash; Chunk with scheduler.yield()</option>
+      <option value="raf">04 &mdash; Chunk with requestAnimationFrame (the trap)</option>
+      <option value="raftimeout">05 &mdash; requestAnimationFrame then setTimeout</option>
+      <option value="worker">06 &mdash; Hand it to a worker (nothing to chunk)</option>
+    </select>
   </div>
 
-  <div class="readout">
-    <div class="metric">
-      <span>Longest animation frame</span>
-      <span id="loafDuration">none</span>
-    </div>
-    <div class="metric">
-      <span>blockingDuration</span>
-      <span id="loafBlocking">none</span>
-    </div>
-    <div class="metric">
-      <span>Render began at</span>
-      <span id="loafRender">none</span>
-    </div>
-    <div class="metric">
-      <span>Style and layout began at</span>
-      <span id="loafStyle">none</span>
-    </div>
+  <div class="field">
+    <label for="taskMs">Work per keystroke <span class="value"><b id="taskMsOut">300</b> ms</span></label>
+    <input id="taskMs" type="range" min="40" max="600" step="20" value="300">
   </div>
 
-  <div>
-    <p class="sub" style="margin-bottom:6px">Attributed script</p>
-    <div class="scripts" id="loafScripts">Nothing recorded yet.</div>
+  <div class="field">
+    <label for="chunkMs">Chunk budget <span class="value"><b id="chunkMsOut">8</b> ms</span></label>
+    <input id="chunkMs" type="range" min="2" max="50" step="2" value="8">
   </div>
 
-  <div class="scripts" id="supportOut" style="min-height:0"></div>
+  <div class="actions">
+    <button id="clickWork" type="button">Run from a click</button>
+    <button id="reset" type="button">Reset</button>
+    <button id="record" type="button">Recording view</button>
+    <button id="support" type="button">Support</button>
+  </div>
 </section>
 
 <script>
@@ -304,36 +749,136 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
+
+  // Every readout goes through one formatter, so a four-figure reading reads
+  // as 1,240 ms rather than 1240 ms. Pinned to en-US because the page is
+  // English throughout and the separator should not follow the host locale.
+  const EMPTY = '\u2014';
+  const NUM = new Intl.NumberFormat('en-US');
+  const fmt = (v) => NUM.format(Math.round(v));
+  const fmtMs = (v) => `${fmt(v)} ms`;
   const filter = $('filter');
   const list = $('list');
   const echo = $('echo');
   const matches = $('matches');
 
   // ---------------------------------------------------------------------
-  // Content. Enough rows that filtering is real work, few enough that the
-  // DOM update is not what we are measuring.
+  // Content. Every match is rendered, so a keystroke that narrows nothing
+  // repaints the whole list -- which is a fair bit of the cheap half of the
+  // work, and the same amount of it in every scheduling mode.
   // ---------------------------------------------------------------------
-  const WORDS = ['thread', 'paint', 'layout', 'style', 'input', 'scroll', 'keypress', 'frame',
-    'queue', 'task', 'yield', 'render', 'commit', 'raster', 'observer', 'handler', 'budget',
-    'latency', 'percentile', 'interaction', 'schedule', 'block', 'defer', 'idle', 'worker'];
+  const AUTHORS = [
+    'Kōbō Abe', 'Chinua Achebe', 'Douglas Adams', 'Ryūnosuke Akutagawa', 'Louisa May Alcott',
+    'Sholem Aleichem', 'Isabel Allende', 'Jorge Amado', 'Kingsley Amis', 'Martin Amis',
+    'Hans Christian Andersen', 'Sherwood Anderson', 'Maya Angelou', 'Jean Anouilh',
+    'Guillaume Apollinaire', 'Hannah Arendt', 'Aristophanes', 'Matthew Arnold', 'Isaac Asimov',
+    'Margaret Atwood', 'W. H. Auden', 'Jane Austen', 'Paul Auster', 'Isaac Babel',
+    'Ingeborg Bachmann', 'James Baldwin', 'J. G. Ballard', 'Honoré de Balzac', 'Julian Barnes',
+    'J. M. Barrie', 'Sebastian Barry', 'Georges Bataille', 'Charles Baudelaire',
+    'Simone de Beauvoir', 'Samuel Beckett', 'Aphra Behn', 'Saul Bellow', 'Walter Benjamin',
+    'Alan Bennett', 'Arnold Bennett', 'John Berger', 'Thomas Bernhard', 'John Betjeman',
+    'Ambrose Bierce', 'Adolfo Bioy Casares', 'Elizabeth Bishop', 'William Blake', 'Robert Bly',
+    'Enid Blyton', 'Giovanni Boccaccio', 'Roberto Bolaño', 'Heinrich Böll', 'Jorge Luis Borges',
+    'Elizabeth Bowen', 'Paul Bowles', 'Ray Bradbury', 'Bertolt Brecht', 'André Breton',
+    'Joseph Brodsky', 'Anne Brontë', 'Charlotte Brontë', 'Emily Brontë', 'Rupert Brooke',
+    'Gwendolyn Brooks', 'Elizabeth Barrett Browning', 'Robert Browning', 'Pearl S. Buck',
+    'Mikhail Bulgakov', 'John Bunyan', 'Anthony Burgess', 'Frances Hodgson Burnett',
+    'Robert Burns', 'William S. Burroughs', 'Samuel Butler', 'A. S. Byatt', 'Lord Byron',
+    'James M. Cain', 'Erskine Caldwell', 'Italo Calvino', 'Albert Camus', 'Karel Čapek',
+    'Truman Capote', 'Peter Carey', 'Alejo Carpentier', 'Lewis Carroll', 'Angela Carter',
+    'Raymond Carver', 'Willa Cather', 'Camilo José Cela', 'Blaise Cendrars',
+    'Miguel de Cervantes', 'Aimé Césaire', 'Raymond Chandler', 'Bruce Chatwin',
+    'Geoffrey Chaucer', 'John Cheever', 'Anton Chekhov', 'G. K. Chesterton', 'Kate Chopin',
+    'Agatha Christie', 'Sandra Cisneros', 'Tom Clancy', 'Arthur C. Clarke', 'Jean Cocteau',
+    'J. M. Coetzee', 'Samuel Taylor Coleridge', 'Colette', 'Wilkie Collins',
+    'Ivy Compton-Burnett', 'Joseph Conrad', 'James Fenimore Cooper', 'Pierre Corneille',
+    'Julio Cortázar', 'Noël Coward', 'Hart Crane', 'Stephen Crane', 'Michael Crichton',
+    'E. E. Cummings', 'Roald Dahl', 'Gabriele D\'Annunzio', 'Dante Alighieri', 'Rubén Darío',
+    'Robertson Davies', 'Daniel Defoe', 'Walter de la Mare', 'Don DeLillo', 'Thomas De Quincey',
+    'Anita Desai', 'Philip K. Dick', 'Charles Dickens', 'Emily Dickinson', 'Denis Diderot',
+    'Joan Didion', 'Annie Dillard', 'Isak Dinesen', 'E. L. Doctorow', 'John Donne',
+    'John Dos Passos', 'Fyodor Dostoevsky', 'Rita Dove', 'Arthur Conan Doyle',
+    'Margaret Drabble', 'Theodore Dreiser', 'John Dryden', 'W. E. B. Du Bois',
+    'Alexandre Dumas', 'Daphne du Maurier', 'Marguerite Duras', 'Lawrence Durrell',
+    'Friedrich Dürrenmatt', 'Umberto Eco', 'Maria Edgeworth', 'George Eliot', 'T. S. Eliot',
+    'James Ellroy', 'Ralph Ellison', 'Buchi Emecheta', 'Ralph Waldo Emerson', 'William Empson',
+    'Shūsaku Endō', 'Louise Erdrich', 'Jeffrey Eugenides', 'Euripides', 'Nuruddin Farah',
+    'William Faulkner', 'Elena Ferrante', 'Henry Fielding', 'F. Scott Fitzgerald',
+    'Penelope Fitzgerald', 'Gustave Flaubert', 'Ian Fleming', 'Ford Madox Ford',
+    'E. M. Forster', 'John Fowles', 'Anne Frank', 'Jonathan Franzen', 'Robert Frost',
+    'Carlos Fuentes', 'Athol Fugard', 'Neil Gaiman', 'Mavis Gallant', 'John Galsworthy',
+    'Gabriel García Márquez', 'Elizabeth Gaskell', 'Jean Genet', 'Kahlil Gibran',
+    'William Gibson', 'André Gide', 'Allen Ginsberg', 'Johann Wolfgang von Goethe',
+    'Nikolai Gogol', 'William Golding', 'Oliver Goldsmith', 'Witold Gombrowicz',
+    'Ivan Goncharov', 'Nadine Gordimer', 'Maxim Gorky', 'Günter Grass', 'Robert Graves',
+    'Graham Greene', 'Thomas Hardy', 'Nathaniel Hawthorne', 'Seamus Heaney', 'Joseph Heller',
+    'Ernest Hemingway', 'Frank Herbert', 'George Herbert', 'Hermann Hesse',
+    'Patricia Highsmith', 'Homer', 'Nick Hornby', 'A. E. Housman', 'Langston Hughes',
+    'Ted Hughes', 'Victor Hugo', 'Zora Neale Hurston', 'Aldous Huxley', 'Henrik Ibsen',
+    'Kazuo Ishiguro', 'Shirley Jackson', 'Henry James', 'P. D. James', 'Samuel Johnson',
+    'James Joyce', 'Franz Kafka', 'Yasunari Kawabata', 'John Keats', 'Jack Kerouac',
+    'Ken Kesey', 'Stephen King', 'Barbara Kingsolver', 'Rudyard Kipling', 'Heinrich von Kleist',
+    'Milan Kundera', 'Selma Lagerlöf', 'Philip Larkin', 'D. H. Lawrence', 'John le Carré',
+    'Ursula K. Le Guin', 'Harper Lee', 'Stanisław Lem', 'Doris Lessing', 'Primo Levi',
+    'C. S. Lewis', 'Sinclair Lewis', 'Clarice Lispector', 'Jack London',
+    'Henry Wadsworth Longfellow', 'Federico García Lorca', 'H. P. Lovecraft', 'Robert Lowell',
+    'Niccolò Machiavelli', 'Naguib Mahfouz', 'Norman Mailer', 'Bernard Malamud',
+    'Stéphane Mallarmé', 'Thomas Malory', 'André Malraux', 'Osip Mandelstam', 'Thomas Mann',
+    'Katherine Mansfield', 'Christopher Marlowe', 'Andrew Marvell', 'W. Somerset Maugham',
+    'Guy de Maupassant', 'Cormac McCarthy', 'Carson McCullers', 'Ian McEwan', 'Herman Melville',
+    'China Miéville', 'Arthur Miller', 'Henry Miller', 'A. A. Milne', 'Czesław Miłosz',
+    'John Milton', 'Yukio Mishima', 'Margaret Mitchell', 'Molière', 'Michel de Montaigne',
+    'L. M. Montgomery', 'Alberto Moravia', 'Toni Morrison', 'Haruki Murakami', 'Iris Murdoch',
+    'Robert Musil', 'Vladimir Nabokov', 'V. S. Naipaul', 'Pablo Neruda', 'Anaïs Nin',
+    'Frank Norris', 'Joyce Carol Oates', 'Edna O\'Brien', 'Flannery O\'Connor', 'Kenzaburō Ōe',
+    'Ben Okri', 'Michael Ondaatje', 'Eugene O\'Neill', 'George Orwell', 'Ovid', 'Wilfred Owen',
+    'Cynthia Ozick', 'Orhan Pamuk', 'Dorothy Parker', 'Boris Pasternak', 'Cesare Pavese',
+    'Octavio Paz', 'Georges Perec', 'Fernando Pessoa', 'Harold Pinter', 'Luigi Pirandello',
+    'Sylvia Plath', 'Plato', 'Edgar Allan Poe', 'Alexander Pope', 'Katherine Anne Porter',
+    'Ezra Pound', 'Anthony Powell', 'Terry Pratchett', 'Marcel Proust', 'Alexander Pushkin',
+    'Thomas Pynchon', 'François Rabelais', 'Jean Racine', 'Ayn Rand', 'Erich Maria Remarque',
+    'Mary Renault', 'Jean Rhys', 'Rainer Maria Rilke', 'Arthur Rimbaud', 'Marilynne Robinson',
+    'Philip Roth', 'Jean-Jacques Rousseau', 'J. K. Rowling', 'Arundhati Roy', 'Salman Rushdie',
+    'Antoine de Saint-Exupéry', 'J. D. Salinger', 'José Saramago', 'Jean-Paul Sartre',
+    'Dorothy L. Sayers', 'Friedrich Schiller', 'W. G. Sebald', 'Vikram Seth', 'Anne Sexton',
+    'William Shakespeare', 'George Bernard Shaw', 'Mary Shelley', 'Percy Bysshe Shelley',
+    'Georges Simenon', 'Isaac Bashevis Singer', 'Zadie Smith', 'Aleksandr Solzhenitsyn',
+    'Sophocles', 'Susan Sontag', 'Wole Soyinka', 'Muriel Spark', 'Edmund Spenser',
+    'Gertrude Stein', 'John Steinbeck', 'Stendhal', 'Laurence Sterne', 'Wallace Stevens',
+    'Robert Louis Stevenson', 'Bram Stoker', 'Tom Stoppard', 'Harriet Beecher Stowe',
+    'August Strindberg', 'William Styron', 'Italo Svevo', 'Jonathan Swift',
+    'Wisława Szymborska', 'Rabindranath Tagore', 'Amy Tan', 'Jun\'ichirō Tanizaki',
+    'Alfred Tennyson', 'William Makepeace Thackeray', 'Dylan Thomas', 'Henry David Thoreau',
+    'J. R. R. Tolkien', 'Leo Tolstoy', 'Ivan Turgenev', 'Mark Twain', 'Anne Tyler',
+    'Sigrid Undset', 'John Updike', 'Paul Valéry', 'Mario Vargas Llosa', 'Jules Verne',
+    'Virgil', 'Kurt Vonnegut', 'Derek Walcott', 'Alice Walker', 'David Foster Wallace',
+    'Evelyn Waugh', 'H. G. Wells', 'Eudora Welty', 'Edith Wharton', 'E. B. White',
+    'Walt Whitman', 'Oscar Wilde', 'Thornton Wilder', 'Tennessee Williams',
+    'William Carlos Williams', 'P. G. Wodehouse', 'Tom Wolfe', 'Virginia Woolf',
+    'William Wordsworth', 'Richard Wright', 'W. B. Yeats', 'Marguerite Yourcenar', 'Émile Zola',
+    'Stefan Zweig'
+  ];
 
-  const rows = Array.from({ length: 400 }, (_, i) => {
-    const a = WORDS[i % WORDS.length];
-    const b = WORDS[(i * 7 + 3) % WORDS.length];
-    return `${String(i).padStart(3, '0')}  ${a}-${b}`;
-  });
+  const surname = (name) => name.split(' ').pop();
+
+  // Accents come off the search key, not the label, so typing "bronte" finds
+  // "Brontë" without folding a string per row on every keystroke.
+  const fold = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+  const rows = AUTHORS.slice().sort((a, b) => surname(a).localeCompare(surname(b)));
+  const keys = rows.map(fold);
 
   function paintList(query) {
-    const q = query.trim().toLowerCase();
-    const found = q ? rows.filter((r) => r.toLowerCase().includes(q)) : rows;
+    const q = fold(query.trim());
+    const found = q ? rows.filter((r, i) => keys[i].includes(q)) : rows;
     const frag = document.createDocumentFragment();
-    for (let i = 0; i < Math.min(found.length, 120); i++) {
+    for (let i = 0; i < found.length; i++) {
       const li = document.createElement('li');
       li.textContent = found[i];
       frag.appendChild(li);
     }
     list.replaceChildren(frag);
-    matches.textContent = `${found.length} rows`;
+    matches.textContent = `${fmt(found.length)} result${found.length === 1 ? '' : 's'}`;
   }
 
   paintList('');
@@ -367,12 +912,86 @@
   };
 
   let runToken = 0;
+  let lastEcho = '';
+
+  // ---------------------------------------------------------------------
+  // Off-thread. Some work has no seam to yield at -- one big parse, one
+  // big sort, one atomic call -- so the answer is not a smaller chunk but
+  // a different thread. Terminating a busy worker is also the only real
+  // cancel the platform offers: the main thread cannot interrupt its own
+  // loop, which is why every mode above has to check a token instead.
+  // ---------------------------------------------------------------------
+  const WORKER_SRC = `
+    self.onmessage = (e) => {
+      const started = performance.now();
+      const end = started + e.data.ms;
+      let sink = 0;
+      while (performance.now() < end) {
+        for (let i = 0; i < 2000; i++) sink += Math.sqrt(i * 1.0001);
+      }
+      self.postMessage({ token: e.data.token, took: performance.now() - started, sink });
+    };
+  `;
+
+  let worker = null;
+  let workerUrl = '';
+  let workerBusy = false;
+  let workerSupported = true;
+
+  function spawnWorker() {
+    try {
+      workerUrl = URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' }));
+      const w = new Worker(workerUrl);
+      w.onmessage = (e) => {
+        workerBusy = false;
+        // A newer keystroke has already answered, so this result is stale.
+        if (e.data.token === runToken) {
+          echo.textContent = `${lastEcho} \u00b7 ${fmtMs(e.data.took)} off-thread`;
+        }
+      };
+      // Blob workers are refused on some file:// setups; fail loudly there.
+      w.onerror = () => { workerSupported = false; killWorker(); };
+      return w;
+    } catch (err) {
+      workerSupported = false;
+      return null;
+    }
+  }
+
+  function killWorker() {
+    if (worker) worker.terminate();
+    if (workerUrl) URL.revokeObjectURL(workerUrl);
+    worker = null;
+    workerUrl = '';
+    workerBusy = false;
+  }
+
+  function runOffThread(totalMs) {
+    const token = ++runToken;
+
+    if (workerBusy) killWorker();          // supersede: a real cancel
+    if (!worker && workerSupported) worker = spawnWorker();
+
+    if (!worker) {
+      echo.textContent = `${lastEcho} \u00b7 no worker here, ran on the main thread`;
+      burn(totalMs);
+      return;
+    }
+
+    workerBusy = true;
+    worker.postMessage({ ms: totalMs, token });
+  }
 
   async function doWork(mode, totalMs, chunkMs) {
     const units = Math.max(1, Math.round(totalMs / UNIT_MS));
 
     if (mode === 'block') {
       burn(totalMs);
+      return;
+    }
+
+    if (mode === 'worker') {
+      runOffThread(totalMs);
       return;
     }
 
@@ -403,7 +1022,9 @@
     const chunkMs = Number($('chunkMs').value);
 
     paintList(query);
-    echo.textContent = `Responded to "${query.slice(-24) || 'click'}"`;
+    clearBtn.hidden = query === '';
+    lastEcho = `Responded to "${query.slice(-24) || 'click'}"`;
+    echo.textContent = lastEcho;
     filter.classList.remove('flash');
     void filter.offsetWidth;
     filter.classList.add('flash');
@@ -411,7 +1032,17 @@
     doWork(mode, totalMs, chunkMs);
   }
 
+  const clearBtn = $('clearFilter');
+
   filter.addEventListener('input', (e) => onInteraction(e.target.value));
+
+  clearBtn.addEventListener('click', () => {
+    filter.value = '';
+    filter.focus();
+    // Clearing narrows the list too, so it goes through the same path and
+    // is measured like any other interaction.
+    onInteraction('');
+  });
   $('clickWork').addEventListener('click', () => onInteraction(filter.value));
 
   // ---------------------------------------------------------------------
@@ -454,13 +1085,13 @@
     const dEl = $('inpDefault');
     const lEl = $('inpLow');
 
-    dEl.textContent = dCount ? `${Math.round(dWorst)} ms` : 'none';
+    dEl.textContent = dCount ? fmtMs(dWorst) : EMPTY;
     dEl.className = 'big ' + (dCount ? (dWorst > 200 ? 'is-block' : 'is-yield') : 'is-none');
 
-    lEl.textContent = lCount ? `${Math.round(lWorst)} ms` : 'none';
+    lEl.textContent = lCount ? fmtMs(lWorst) : EMPTY;
     lEl.className = 'big ' + (lCount ? (lWorst > 200 ? 'is-block' : 'is-yield') : 'is-none');
 
-    $('counts').textContent = `${dCount} / ${lCount}`;
+    $('counts').textContent = `${fmt(dCount)} / ${fmt(lCount)}`;
     $('thresholdNote').classList.toggle('on', lCount > 0 && dCount === 0);
   }
 
@@ -480,18 +1111,18 @@
   }
 
   function renderLoaf(entry) {
-    $('loafDuration').textContent = `${Math.round(entry.duration)} ms`;
+    $('loafDuration').textContent = fmtMs(entry.duration);
     $('loafDuration').className = entry.duration > 50 ? 'is-block' : '';
-    $('loafBlocking').textContent = `${Math.round(entry.blockingDuration)} ms`;
-    $('loafRender').textContent = `+${Math.round(entry.renderStart - entry.startTime)} ms`;
+    $('loafBlocking').textContent = fmtMs(entry.blockingDuration);
+    $('loafRender').textContent = `+${fmtMs(entry.renderStart - entry.startTime)}`;
     $('loafStyle').textContent = entry.styleAndLayoutStart
-      ? `+${Math.round(entry.styleAndLayoutStart - entry.startTime)} ms`
+      ? `+${fmtMs(entry.styleAndLayoutStart - entry.startTime)}`
       : 'not reached';
 
     const scripts = [...(entry.scripts || [])].sort((a, b) => b.duration - a.duration).slice(0, 3);
     $('loafScripts').textContent = scripts.length
       ? scripts.map((s) =>
-          `${Math.round(s.duration)} ms  ${s.invoker || '(unknown invoker)'}\n` +
+          `${fmtMs(s.duration)}  ${s.invoker || '(unknown invoker)'}\n` +
           `        ${shortUrl(s.sourceURL)}  char ${s.sourceCharPosition ?? '?'}` +
           (s.sourceFunctionName ? `  in ${s.sourceFunctionName}()` : '')
         ).join('\n\n')
@@ -518,18 +1149,80 @@
   // ---------------------------------------------------------------------
   const chart = $('chart');
   const ctx = chart.getContext('2d');
-  const SLOTS = 240;
+  const peakOut = $('peak');
+
+  // One bar per slice of wall clock rather than per frame. Two things fall
+  // out of that: the window is the same length on a 60 Hz projector as on a
+  // 120 Hz laptop, and a frame that overruns its slice fills every slice it
+  // covered, so a block is as wide on screen as it was long in time.
+  const SLOT_MS = 33;
+  const SLOTS = 300;
+  // Anything past this is a resume from a background tab, not a long frame.
+  const STALE_MS = 2000;
+
   const deltas = new Float32Array(SLOTS);
   let head = 0;
   let last = performance.now();
+  let slotStart = last;
+  let slotWorst = 0;
+  let peakMs = 0;
   let frames = 0;
   let fpsAt = last;
+  let dpr = 1;
+  let axis = 0;
+  let ceiling = 120;
+
+  // Filled from CSS on size, so the plot never carries its own palette.
+  const paint = {
+    'bar-low': 'rgba(15, 18, 20, 0.45)',
+    'bar-mid': 'rgba(15, 18, 20, 0.88)',
+    'bar-high': '#A32414',
+    'rule-frame': 'rgba(15, 18, 20, 0.2)',
+    'rule-long': 'rgba(15, 18, 20, 0.34)',
+    'rule-peak': 'rgba(163, 36, 20, 0.7)'
+  };
+
+  // Full bleed means the backing store has to match the box, or the bars
+  // land on half pixels and go soft. The axis width is read back from CSS
+  // so the gutter and the scale labels cannot drift apart.
+  function sizeChart() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const box = chart.getBoundingClientRect();
+    chart.width = Math.max(1, Math.round(box.width * dpr));
+    chart.height = Math.max(1, Math.round(box.height * dpr));
+    const css = getComputedStyle(chart);
+    axis = (parseFloat(css.getPropertyValue('--axis')) || 0) * dpr;
+    // The scale labels are positioned against this same value in CSS.
+    ceiling = parseFloat(css.getPropertyValue('--ceiling')) || 120;
+    for (const k of Object.keys(paint)) paint[k] = css.getPropertyValue(`--${k}`).trim() || paint[k];
+  }
+  sizeChart();
+  window.addEventListener('resize', sizeChart);
 
   function draw(now) {
     const delta = now - last;
     last = now;
-    deltas[head] = delta;
-    head = (head + 1) % SLOTS;
+
+    if (delta < STALE_MS) {
+      slotWorst = Math.max(slotWorst, delta);
+
+      while (now - slotStart >= SLOT_MS) {
+        deltas[head] = slotWorst;
+        head = (head + 1) % SLOTS;
+        slotStart += SLOT_MS;
+        // Still inside the same long frame, so the next slice reads the same.
+        slotWorst = delta;
+      }
+
+      if (delta > peakMs) {
+        peakMs = delta;
+        peakOut.textContent = fmtMs(peakMs);
+        peakOut.className = peakMs > 50 ? 'is-block' : '';
+      }
+    } else {
+      slotStart = now;
+      slotWorst = 0;
+    }
 
     frames++;
     if (now - fpsAt > 500) {
@@ -542,23 +1235,40 @@
     const h = chart.height;
     ctx.clearRect(0, 0, w, h);
 
-    // Rule at the 50 ms line.
-    const scale = h / 120;
-    ctx.strokeStyle = '#C2CBCF';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, h - 50 * scale);
-    ctx.lineTo(w, h - 50 * scale);
-    ctx.stroke();
+    // Reference rules: one frame at 60 Hz, and the 50 ms line a frame has
+    // to stay under to count as short.
+    const scale = h / ceiling;
 
-    const barW = w / SLOTS;
+    function rule(ms, style, dash) {
+      // Half-pixel offset keeps a 1px rule off the seam between two rows.
+      // Clamped so a mark sitting at the ceiling still draws in full.
+      const raw = Math.round(h - ms * scale) + (dpr % 2 ? 0.5 : 0);
+      const y = Math.min(Math.max(raw, dpr / 2), h - dpr / 2);
+      ctx.strokeStyle = style;
+      ctx.lineWidth = dpr;
+      ctx.setLineDash(dash);
+      ctx.beginPath();
+      ctx.moveTo(axis, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+
+    rule(16.7, paint['rule-frame'], []);
+    rule(50, paint['rule-long'], [4 * dpr, 6 * dpr]);
+    ctx.setLineDash([]);
+
+    const barW = (w - axis) / SLOTS;
     for (let i = 0; i < SLOTS; i++) {
       const d = deltas[(head + i) % SLOTS];
       if (!d) continue;
       const bh = Math.min(h, d * scale);
-      ctx.fillStyle = d > 50 ? '#C81E3A' : d > 20 ? '#A8730A' : '#1B5FA8';
-      ctx.fillRect(i * barW, h - bh, Math.max(1, barW - 1), bh);
+      ctx.fillStyle = d > 50 ? paint['bar-high'] : d > 20 ? paint['bar-mid'] : paint['bar-low'];
+      ctx.fillRect(axis + i * barW, h - bh, Math.max(1, barW - dpr), bh);
     }
+
+    // Drawn last so it survives the bars: where the worst frame reached,
+    // still legible long after that frame has scrolled off the left.
+    if (peakMs > 0) rule(Math.min(peakMs, ceiling), paint['rule-peak'], []);
 
     requestAnimationFrame(draw);
   }
@@ -575,17 +1285,23 @@
     lowTracker.clear();
     worstLoaf = null;
     renderInp();
-    $('loafDuration').textContent = 'none';
+    $('loafDuration').textContent = EMPTY;
     $('loafDuration').className = '';
-    $('loafBlocking').textContent = 'none';
-    $('loafRender').textContent = 'none';
-    $('loafStyle').textContent = 'none';
+    $('loafBlocking').textContent = EMPTY;
+    $('loafRender').textContent = EMPTY;
+    $('loafStyle').textContent = EMPTY;
     if (loafSupported) $('loafScripts').textContent = 'Nothing recorded yet.';
     deltas.fill(0);
+    peakMs = 0;
+    slotWorst = 0;
+    slotStart = performance.now();
+    peakOut.textContent = EMPTY;
+    peakOut.className = '';
   });
 
   $('record').addEventListener('click', () => {
     document.body.classList.toggle('recording');
+    sizeChart();
   });
 
   $('support').addEventListener('click', () => {
@@ -594,7 +1310,8 @@
       `Long Animation Frames    ${loafSupported ? 'available' : 'missing'}`,
       `Event Timing             ${defaultTracker.supported ? 'available' : 'missing'}`,
       `requestIdleCallback      ${'requestIdleCallback' in window ? 'available' : 'missing'}`,
-      `isInputPending           ${navigator.scheduling?.isInputPending ? 'available' : 'missing'}`
+      `isInputPending           ${navigator.scheduling?.isInputPending ? 'available' : 'missing'}`,
+      `Web Workers              ${workerSupported ? 'available' : 'blocked here'}`
     ];
     $('supportOut').textContent = lines.join('\n');
   });
