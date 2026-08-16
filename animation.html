@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Walkers</title>
+<style>
+  :root {
+    /* Same system as the bench: cool flat ground for the instrumentation,
+       warm raised panel for the thing a user would actually see. */
+    --bg: #DADFE0;
+    --fg: #0F1214;
+    --fg-dim: #3F4749;
+    --fg-faint: #636C6F;
+    --line: rgba(15, 18, 20, 0.22);
+    --line-soft: rgba(15, 18, 20, 0.1);
+    --signal: #A32414;
+    --sans: ui-sans-serif, -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    --big: clamp(2.5rem, 5vw, 4rem);
+    --pad: clamp(20px, 3vw, 44px);
+    --gutter: clamp(20px, 3vw, 44px);
+    --cycle: 0.9s;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+
+  ::selection { background: var(--fg); color: var(--bg); }
+  :focus-visible { outline: 1px solid var(--fg); outline-offset: 3px; }
+
+  main { display: flex; flex-direction: column; }
+
+  @media (min-width: 901px) {
+    body { height: 100vh; height: 100dvh; }
+    main { overflow-y: auto; scrollbar-width: thin; }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Shared type                                                         */
+  /* ------------------------------------------------------------------ */
+
+  .key {
+    display: block;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin: 0 0 6px;
+  }
+
+  .masthead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 24px;
+    padding: calc(var(--pad) * 0.45) var(--pad);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .wordmark {
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.36em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+
+  .masthead__meta {
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .band {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    column-gap: var(--gutter);
+    row-gap: clamp(14px, 1.8vw, 22px);
+    padding: clamp(14px, 1.7vw, 21px) var(--pad);
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Stage. The animation is the product here, so it takes the panel     */
+  /* treatment: warm ground, white cards, slightly raised.               */
+  /* ------------------------------------------------------------------ */
+
+  .stage {
+    grid-template-columns: 1fr 1.618fr;
+    column-gap: var(--gutter);
+    align-items: center;
+    background: #F5F3EF;
+    border-bottom: 0;
+    --bg: #F5F3EF;
+    --fg: #0B0B0B;
+    --fg-dim: #5E5E5A;
+    --fg-faint: #757570;
+    --line: rgba(11, 11, 11, 0.18);
+    --line-soft: rgba(11, 11, 11, 0.07);
+    color: var(--fg);
+    padding-top: clamp(16px, 1.8vw, 22px);
+    padding-bottom: clamp(16px, 1.8vw, 22px);
+  }
+
+  .lede {
+    margin: 0;
+    max-width: 15ch;
+    font-size: clamp(1.4rem, 2.4vw, 2.2rem);
+    line-height: 1.1;
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+  }
+
+  .lede em { font-style: normal; color: var(--fg-dim); }
+
+  .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gutter); }
+
+  .card {
+    margin: 0;
+    background: #FFFFFF;
+    border: 1px solid rgba(11, 11, 11, 0.12);
+    border-radius: 4px;
+    box-shadow: 0 1px 1px rgba(11, 11, 11, 0.03), 0 10px 24px -12px rgba(11, 11, 11, 0.18);
+    padding: 6px 0 14px;
+  }
+
+  .card figcaption {
+    font-size: 12.5px;
+    color: var(--fg-dim);
+    text-align: center;
+    padding: 0 12px;
+  }
+
+  .card figcaption b { display: block; color: var(--fg); font-weight: 500; }
+  .card figcaption code { font-family: var(--mono); font-size: 11.5px; }
+
+  /* ------------------------------------------------------------------ */
+  /* The figures. Ten joints each: hip, knee and ankle on both legs,     */
+  /* shoulder and elbow on both arms. One skeleton, one gait, three ways */
+  /* of driving it -- two of which need this thread.                     */
+  /* ------------------------------------------------------------------ */
+
+  .fig { position: relative; width: 186px; height: 306px; margin: 0 auto; }
+
+  .fig .ground {
+    position: absolute; left: 8px; top: 268px;
+    width: 170px; height: 1px; background: rgba(11, 11, 11, 0.2);
+  }
+
+  .fig .body { position: absolute; inset: 0; will-change: transform; }
+  .fig .head { position: absolute; left: 73px; top: 42px; width: 38px; height: 38px; border: 4px solid; border-radius: 50%; }
+  .fig .torso { position: absolute; left: 90px; top: 81px; width: 5px; height: 83px; border-radius: 3px; }
+
+  .fig .limb {
+    position: absolute; left: 90px; width: 5px; border-radius: 3px;
+    transform-origin: 50% 2.5px; will-change: transform;
+  }
+
+  .fig .arm { top: 91px; height: 31px; }
+  .fig .leg { top: 164px; height: 47px; }
+
+  .fig .seg {
+    position: absolute; left: 0; width: 5px; border-radius: 3px;
+    transform-origin: 50% 2.5px; will-change: transform;
+  }
+
+  .fig .forearm { top: 29px; height: 29px; }
+  .fig .shin { top: 45px; height: 47px; }
+
+  .fig .foot {
+    position: absolute; left: 0; top: 45px; width: 20px; height: 5px;
+    border-radius: 3px; transform-origin: 2.5px 50%; will-change: transform;
+  }
+
+  .fig .far { opacity: 0.45; }
+
+  /* Red is main-thread: both of those stop when the thread stops. Only the
+     compositor-driven one keeps its stride, and it is the odd one out. */
+  .fig.js .head,
+  .fig.css-main .head { border-color: var(--signal); }
+  .fig.js .torso, .fig.js .limb, .fig.js .seg, .fig.js .foot,
+  .fig.css-main .torso, .fig.css-main .limb, .fig.css-main .seg, .fig.css-main .foot { background: var(--signal); }
+  .fig.css-gpu .head { border-color: var(--fg); }
+  .fig.css-gpu .torso, .fig.css-gpu .limb, .fig.css-gpu .seg, .fig.css-gpu .foot { background: var(--fg); }
+
+  @keyframes hipA { 0% { transform: rotate(0.0deg); } 6.25% { transform: rotate(9.95deg); } 12.5% { transform: rotate(18.38deg); } 18.75% { transform: rotate(24.02deg); } 25% { transform: rotate(26.0deg); } 31.25% { transform: rotate(24.02deg); } 37.5% { transform: rotate(18.38deg); } 43.75% { transform: rotate(9.95deg); } 50% { transform: rotate(0.0deg); } 56.25% { transform: rotate(-9.95deg); } 62.5% { transform: rotate(-18.38deg); } 68.75% { transform: rotate(-24.02deg); } 75% { transform: rotate(-26.0deg); } 81.25% { transform: rotate(-24.02deg); } 87.5% { transform: rotate(-18.38deg); } 93.75% { transform: rotate(-9.95deg); } 100% { transform: rotate(-0.0deg); } }
+  @keyframes hipB { 0% { transform: rotate(0.0deg); } 6.25% { transform: rotate(-9.95deg); } 12.5% { transform: rotate(-18.38deg); } 18.75% { transform: rotate(-24.02deg); } 25% { transform: rotate(-26.0deg); } 31.25% { transform: rotate(-24.02deg); } 37.5% { transform: rotate(-18.38deg); } 43.75% { transform: rotate(-9.95deg); } 50% { transform: rotate(-0.0deg); } 56.25% { transform: rotate(9.95deg); } 62.5% { transform: rotate(18.38deg); } 68.75% { transform: rotate(24.02deg); } 75% { transform: rotate(26.0deg); } 81.25% { transform: rotate(24.02deg); } 87.5% { transform: rotate(18.38deg); } 93.75% { transform: rotate(9.95deg); } 100% { transform: rotate(0.0deg); } }
+  @keyframes kneeA { 0% { transform: rotate(0.0deg); } 6.25% { transform: rotate(0.0deg); } 12.5% { transform: rotate(0.0deg); } 18.75% { transform: rotate(0.0deg); } 25% { transform: rotate(0.0deg); } 31.25% { transform: rotate(19.9deg); } 37.5% { transform: rotate(36.77deg); } 43.75% { transform: rotate(48.04deg); } 50% { transform: rotate(52.0deg); } 56.25% { transform: rotate(48.04deg); } 62.5% { transform: rotate(36.77deg); } 68.75% { transform: rotate(19.9deg); } 75% { transform: rotate(0.0deg); } 81.25% { transform: rotate(0.0deg); } 87.5% { transform: rotate(0.0deg); } 93.75% { transform: rotate(0.0deg); } 100% { transform: rotate(0.0deg); } }
+  @keyframes kneeB { 0% { transform: rotate(52.0deg); } 6.25% { transform: rotate(48.04deg); } 12.5% { transform: rotate(36.77deg); } 18.75% { transform: rotate(19.9deg); } 25% { transform: rotate(0.0deg); } 31.25% { transform: rotate(0.0deg); } 37.5% { transform: rotate(0.0deg); } 43.75% { transform: rotate(0.0deg); } 50% { transform: rotate(0.0deg); } 56.25% { transform: rotate(0.0deg); } 62.5% { transform: rotate(0.0deg); } 68.75% { transform: rotate(0.0deg); } 75% { transform: rotate(0.0deg); } 81.25% { transform: rotate(19.9deg); } 87.5% { transform: rotate(36.77deg); } 93.75% { transform: rotate(48.04deg); } 100% { transform: rotate(52.0deg); } }
+  @keyframes footA { 0% { transform: rotate(-0.0deg); } 6.25% { transform: rotate(-8.95deg); } 12.5% { transform: rotate(-16.55deg); } 18.75% { transform: rotate(-21.62deg); } 25% { transform: rotate(-23.4deg); } 31.25% { transform: rotate(-39.53deg); } 37.5% { transform: rotate(-49.64deg); } 43.75% { transform: rotate(-52.19deg); } 50% { transform: rotate(-46.8deg); } 56.25% { transform: rotate(-34.28deg); } 62.5% { transform: rotate(-16.55deg); } 68.75% { transform: rotate(3.71deg); } 75% { transform: rotate(23.4deg); } 81.25% { transform: rotate(21.62deg); } 87.5% { transform: rotate(16.55deg); } 93.75% { transform: rotate(8.95deg); } 100% { transform: rotate(0.0deg); } }
+  @keyframes footB { 0% { transform: rotate(-46.8deg); } 6.25% { transform: rotate(-34.28deg); } 12.5% { transform: rotate(-16.55deg); } 18.75% { transform: rotate(3.71deg); } 25% { transform: rotate(23.4deg); } 31.25% { transform: rotate(21.62deg); } 37.5% { transform: rotate(16.55deg); } 43.75% { transform: rotate(8.95deg); } 50% { transform: rotate(0.0deg); } 56.25% { transform: rotate(-8.95deg); } 62.5% { transform: rotate(-16.55deg); } 68.75% { transform: rotate(-21.62deg); } 75% { transform: rotate(-23.4deg); } 81.25% { transform: rotate(-39.53deg); } 87.5% { transform: rotate(-49.64deg); } 93.75% { transform: rotate(-52.19deg); } 100% { transform: rotate(-46.8deg); } }
+  @keyframes shoulderA { 0% { transform: rotate(-0.0deg); } 6.25% { transform: rotate(-8.42deg); } 12.5% { transform: rotate(-15.56deg); } 18.75% { transform: rotate(-20.33deg); } 25% { transform: rotate(-22.0deg); } 31.25% { transform: rotate(-20.33deg); } 37.5% { transform: rotate(-15.56deg); } 43.75% { transform: rotate(-8.42deg); } 50% { transform: rotate(-0.0deg); } 56.25% { transform: rotate(8.42deg); } 62.5% { transform: rotate(15.56deg); } 68.75% { transform: rotate(20.33deg); } 75% { transform: rotate(22.0deg); } 81.25% { transform: rotate(20.33deg); } 87.5% { transform: rotate(15.56deg); } 93.75% { transform: rotate(8.42deg); } 100% { transform: rotate(0.0deg); } }
+  @keyframes shoulderB { 0% { transform: rotate(-0.0deg); } 6.25% { transform: rotate(8.42deg); } 12.5% { transform: rotate(15.56deg); } 18.75% { transform: rotate(20.33deg); } 25% { transform: rotate(22.0deg); } 31.25% { transform: rotate(20.33deg); } 37.5% { transform: rotate(15.56deg); } 43.75% { transform: rotate(8.42deg); } 50% { transform: rotate(0.0deg); } 56.25% { transform: rotate(-8.42deg); } 62.5% { transform: rotate(-15.56deg); } 68.75% { transform: rotate(-20.33deg); } 75% { transform: rotate(-22.0deg); } 81.25% { transform: rotate(-20.33deg); } 87.5% { transform: rotate(-15.56deg); } 93.75% { transform: rotate(-8.42deg); } 100% { transform: rotate(-0.0deg); } }
+  @keyframes elbowA { 0% { transform: rotate(-12.0deg); } 6.25% { transform: rotate(-19.65deg); } 12.5% { transform: rotate(-26.14deg); } 18.75% { transform: rotate(-30.48deg); } 25% { transform: rotate(-32.0deg); } 31.25% { transform: rotate(-30.48deg); } 37.5% { transform: rotate(-26.14deg); } 43.75% { transform: rotate(-19.65deg); } 50% { transform: rotate(-12.0deg); } 56.25% { transform: rotate(-12.0deg); } 62.5% { transform: rotate(-12.0deg); } 68.75% { transform: rotate(-12.0deg); } 75% { transform: rotate(-12.0deg); } 81.25% { transform: rotate(-12.0deg); } 87.5% { transform: rotate(-12.0deg); } 93.75% { transform: rotate(-12.0deg); } 100% { transform: rotate(-12.0deg); } }
+  @keyframes elbowB { 0% { transform: rotate(-12.0deg); } 6.25% { transform: rotate(-12.0deg); } 12.5% { transform: rotate(-12.0deg); } 18.75% { transform: rotate(-12.0deg); } 25% { transform: rotate(-12.0deg); } 31.25% { transform: rotate(-12.0deg); } 37.5% { transform: rotate(-12.0deg); } 43.75% { transform: rotate(-12.0deg); } 50% { transform: rotate(-12.0deg); } 56.25% { transform: rotate(-19.65deg); } 62.5% { transform: rotate(-26.14deg); } 68.75% { transform: rotate(-30.48deg); } 75% { transform: rotate(-32.0deg); } 81.25% { transform: rotate(-30.48deg); } 87.5% { transform: rotate(-26.14deg); } 93.75% { transform: rotate(-19.65deg); } 100% { transform: rotate(-12.0deg); } }
+  @keyframes bob { 0% { transform: translateY(-0.0px); } 6.25% { transform: translateY(-2.83px); } 12.5% { transform: translateY(-4.0px); } 18.75% { transform: translateY(-2.83px); } 25% { transform: translateY(-0.0px); } 31.25% { transform: translateY(-2.83px); } 37.5% { transform: translateY(-4.0px); } 43.75% { transform: translateY(-2.83px); } 50% { transform: translateY(-0.0px); } 56.25% { transform: translateY(-2.83px); } 62.5% { transform: translateY(-4.0px); } 68.75% { transform: translateY(-2.83px); } 75% { transform: translateY(-0.0px); } 81.25% { transform: translateY(-2.83px); } 87.5% { transform: translateY(-4.0px); } 93.75% { transform: translateY(-2.83px); } 100% { transform: translateY(-0.0px); } }
+
+  @keyframes hipA_main { 0% { transform: rotate(0.0deg); margin-left: 0.2px; } 6.25% { transform: rotate(9.95deg); margin-left: 0.28px; } 12.5% { transform: rotate(18.38deg); margin-left: 0.34px; } 18.75% { transform: rotate(24.02deg); margin-left: 0.38px; } 25% { transform: rotate(26.0deg); margin-left: 0.4px; } 31.25% { transform: rotate(24.02deg); margin-left: 0.38px; } 37.5% { transform: rotate(18.38deg); margin-left: 0.34px; } 43.75% { transform: rotate(9.95deg); margin-left: 0.28px; } 50% { transform: rotate(0.0deg); margin-left: 0.2px; } 56.25% { transform: rotate(-9.95deg); margin-left: 0.12px; } 62.5% { transform: rotate(-18.38deg); margin-left: 0.06px; } 68.75% { transform: rotate(-24.02deg); margin-left: 0.02px; } 75% { transform: rotate(-26.0deg); margin-left: 0.0px; } 81.25% { transform: rotate(-24.02deg); margin-left: 0.02px; } 87.5% { transform: rotate(-18.38deg); margin-left: 0.06px; } 93.75% { transform: rotate(-9.95deg); margin-left: 0.12px; } 100% { transform: rotate(-0.0deg); margin-left: 0.2px; } }
+  @keyframes hipB_main { 0% { transform: rotate(0.0deg); margin-left: 0.2px; } 6.25% { transform: rotate(-9.95deg); margin-left: 0.12px; } 12.5% { transform: rotate(-18.38deg); margin-left: 0.06px; } 18.75% { transform: rotate(-24.02deg); margin-left: 0.02px; } 25% { transform: rotate(-26.0deg); margin-left: 0.0px; } 31.25% { transform: rotate(-24.02deg); margin-left: 0.02px; } 37.5% { transform: rotate(-18.38deg); margin-left: 0.06px; } 43.75% { transform: rotate(-9.95deg); margin-left: 0.12px; } 50% { transform: rotate(-0.0deg); margin-left: 0.2px; } 56.25% { transform: rotate(9.95deg); margin-left: 0.28px; } 62.5% { transform: rotate(18.38deg); margin-left: 0.34px; } 68.75% { transform: rotate(24.02deg); margin-left: 0.38px; } 75% { transform: rotate(26.0deg); margin-left: 0.4px; } 81.25% { transform: rotate(24.02deg); margin-left: 0.38px; } 87.5% { transform: rotate(18.38deg); margin-left: 0.34px; } 93.75% { transform: rotate(9.95deg); margin-left: 0.28px; } 100% { transform: rotate(0.0deg); margin-left: 0.2px; } }
+  @keyframes kneeA_main { 0% { transform: rotate(0.0deg); margin-left: 0.2px; } 6.25% { transform: rotate(0.0deg); margin-left: 0.28px; } 12.5% { transform: rotate(0.0deg); margin-left: 0.34px; } 18.75% { transform: rotate(0.0deg); margin-left: 0.38px; } 25% { transform: rotate(0.0deg); margin-left: 0.4px; } 31.25% { transform: rotate(19.9deg); margin-left: 0.38px; } 37.5% { transform: rotate(36.77deg); margin-left: 0.34px; } 43.75% { transform: rotate(48.04deg); margin-left: 0.28px; } 50% { transform: rotate(52.0deg); margin-left: 0.2px; } 56.25% { transform: rotate(48.04deg); margin-left: 0.12px; } 62.5% { transform: rotate(36.77deg); margin-left: 0.06px; } 68.75% { transform: rotate(19.9deg); margin-left: 0.02px; } 75% { transform: rotate(0.0deg); margin-left: 0.0px; } 81.25% { transform: rotate(0.0deg); margin-left: 0.02px; } 87.5% { transform: rotate(0.0deg); margin-left: 0.06px; } 93.75% { transform: rotate(0.0deg); margin-left: 0.12px; } 100% { transform: rotate(0.0deg); margin-left: 0.2px; } }
+  @keyframes kneeB_main { 0% { transform: rotate(52.0deg); margin-left: 0.2px; } 6.25% { transform: rotate(48.04deg); margin-left: 0.12px; } 12.5% { transform: rotate(36.77deg); margin-left: 0.06px; } 18.75% { transform: rotate(19.9deg); margin-left: 0.02px; } 25% { transform: rotate(0.0deg); margin-left: 0.0px; } 31.25% { transform: rotate(0.0deg); margin-left: 0.02px; } 37.5% { transform: rotate(0.0deg); margin-left: 0.06px; } 43.75% { transform: rotate(0.0deg); margin-left: 0.12px; } 50% { transform: rotate(0.0deg); margin-left: 0.2px; } 56.25% { transform: rotate(0.0deg); margin-left: 0.28px; } 62.5% { transform: rotate(0.0deg); margin-left: 0.34px; } 68.75% { transform: rotate(0.0deg); margin-left: 0.38px; } 75% { transform: rotate(0.0deg); margin-left: 0.4px; } 81.25% { transform: rotate(19.9deg); margin-left: 0.38px; } 87.5% { transform: rotate(36.77deg); margin-left: 0.34px; } 93.75% { transform: rotate(48.04deg); margin-left: 0.28px; } 100% { transform: rotate(52.0deg); margin-left: 0.2px; } }
+  @keyframes footA_main { 0% { transform: rotate(-0.0deg); margin-left: 0.2px; } 6.25% { transform: rotate(-8.95deg); margin-left: 0.28px; } 12.5% { transform: rotate(-16.55deg); margin-left: 0.34px; } 18.75% { transform: rotate(-21.62deg); margin-left: 0.38px; } 25% { transform: rotate(-23.4deg); margin-left: 0.4px; } 31.25% { transform: rotate(-39.53deg); margin-left: 0.38px; } 37.5% { transform: rotate(-49.64deg); margin-left: 0.34px; } 43.75% { transform: rotate(-52.19deg); margin-left: 0.28px; } 50% { transform: rotate(-46.8deg); margin-left: 0.2px; } 56.25% { transform: rotate(-34.28deg); margin-left: 0.12px; } 62.5% { transform: rotate(-16.55deg); margin-left: 0.06px; } 68.75% { transform: rotate(3.71deg); margin-left: 0.02px; } 75% { transform: rotate(23.4deg); margin-left: 0.0px; } 81.25% { transform: rotate(21.62deg); margin-left: 0.02px; } 87.5% { transform: rotate(16.55deg); margin-left: 0.06px; } 93.75% { transform: rotate(8.95deg); margin-left: 0.12px; } 100% { transform: rotate(0.0deg); margin-left: 0.2px; } }
+  @keyframes footB_main { 0% { transform: rotate(-46.8deg); margin-left: 0.2px; } 6.25% { transform: rotate(-34.28deg); margin-left: 0.12px; } 12.5% { transform: rotate(-16.55deg); margin-left: 0.06px; } 18.75% { transform: rotate(3.71deg); margin-left: 0.02px; } 25% { transform: rotate(23.4deg); margin-left: 0.0px; } 31.25% { transform: rotate(21.62deg); margin-left: 0.02px; } 37.5% { transform: rotate(16.55deg); margin-left: 0.06px; } 43.75% { transform: rotate(8.95deg); margin-left: 0.12px; } 50% { transform: rotate(0.0deg); margin-left: 0.2px; } 56.25% { transform: rotate(-8.95deg); margin-left: 0.28px; } 62.5% { transform: rotate(-16.55deg); margin-left: 0.34px; } 68.75% { transform: rotate(-21.62deg); margin-left: 0.38px; } 75% { transform: rotate(-23.4deg); margin-left: 0.4px; } 81.25% { transform: rotate(-39.53deg); margin-left: 0.38px; } 87.5% { transform: rotate(-49.64deg); margin-left: 0.34px; } 93.75% { transform: rotate(-52.19deg); margin-left: 0.28px; } 100% { transform: rotate(-46.8deg); margin-left: 0.2px; } }
+  @keyframes shoulderA_main { 0% { transform: rotate(-0.0deg); margin-left: 0.2px; } 6.25% { transform: rotate(-8.42deg); margin-left: 0.28px; } 12.5% { transform: rotate(-15.56deg); margin-left: 0.34px; } 18.75% { transform: rotate(-20.33deg); margin-left: 0.38px; } 25% { transform: rotate(-22.0deg); margin-left: 0.4px; } 31.25% { transform: rotate(-20.33deg); margin-left: 0.38px; } 37.5% { transform: rotate(-15.56deg); margin-left: 0.34px; } 43.75% { transform: rotate(-8.42deg); margin-left: 0.28px; } 50% { transform: rotate(-0.0deg); margin-left: 0.2px; } 56.25% { transform: rotate(8.42deg); margin-left: 0.12px; } 62.5% { transform: rotate(15.56deg); margin-left: 0.06px; } 68.75% { transform: rotate(20.33deg); margin-left: 0.02px; } 75% { transform: rotate(22.0deg); margin-left: 0.0px; } 81.25% { transform: rotate(20.33deg); margin-left: 0.02px; } 87.5% { transform: rotate(15.56deg); margin-left: 0.06px; } 93.75% { transform: rotate(8.42deg); margin-left: 0.12px; } 100% { transform: rotate(0.0deg); margin-left: 0.2px; } }
+  @keyframes shoulderB_main { 0% { transform: rotate(-0.0deg); margin-left: 0.2px; } 6.25% { transform: rotate(8.42deg); margin-left: 0.12px; } 12.5% { transform: rotate(15.56deg); margin-left: 0.06px; } 18.75% { transform: rotate(20.33deg); margin-left: 0.02px; } 25% { transform: rotate(22.0deg); margin-left: 0.0px; } 31.25% { transform: rotate(20.33deg); margin-left: 0.02px; } 37.5% { transform: rotate(15.56deg); margin-left: 0.06px; } 43.75% { transform: rotate(8.42deg); margin-left: 0.12px; } 50% { transform: rotate(0.0deg); margin-left: 0.2px; } 56.25% { transform: rotate(-8.42deg); margin-left: 0.28px; } 62.5% { transform: rotate(-15.56deg); margin-left: 0.34px; } 68.75% { transform: rotate(-20.33deg); margin-left: 0.38px; } 75% { transform: rotate(-22.0deg); margin-left: 0.4px; } 81.25% { transform: rotate(-20.33deg); margin-left: 0.38px; } 87.5% { transform: rotate(-15.56deg); margin-left: 0.34px; } 93.75% { transform: rotate(-8.42deg); margin-left: 0.28px; } 100% { transform: rotate(-0.0deg); margin-left: 0.2px; } }
+  @keyframes elbowA_main { 0% { transform: rotate(-12.0deg); margin-left: 0.2px; } 6.25% { transform: rotate(-19.65deg); margin-left: 0.28px; } 12.5% { transform: rotate(-26.14deg); margin-left: 0.34px; } 18.75% { transform: rotate(-30.48deg); margin-left: 0.38px; } 25% { transform: rotate(-32.0deg); margin-left: 0.4px; } 31.25% { transform: rotate(-30.48deg); margin-left: 0.38px; } 37.5% { transform: rotate(-26.14deg); margin-left: 0.34px; } 43.75% { transform: rotate(-19.65deg); margin-left: 0.28px; } 50% { transform: rotate(-12.0deg); margin-left: 0.2px; } 56.25% { transform: rotate(-12.0deg); margin-left: 0.12px; } 62.5% { transform: rotate(-12.0deg); margin-left: 0.06px; } 68.75% { transform: rotate(-12.0deg); margin-left: 0.02px; } 75% { transform: rotate(-12.0deg); margin-left: 0.0px; } 81.25% { transform: rotate(-12.0deg); margin-left: 0.02px; } 87.5% { transform: rotate(-12.0deg); margin-left: 0.06px; } 93.75% { transform: rotate(-12.0deg); margin-left: 0.12px; } 100% { transform: rotate(-12.0deg); margin-left: 0.2px; } }
+  @keyframes elbowB_main { 0% { transform: rotate(-12.0deg); margin-left: 0.2px; } 6.25% { transform: rotate(-12.0deg); margin-left: 0.12px; } 12.5% { transform: rotate(-12.0deg); margin-left: 0.06px; } 18.75% { transform: rotate(-12.0deg); margin-left: 0.02px; } 25% { transform: rotate(-12.0deg); margin-left: 0.0px; } 31.25% { transform: rotate(-12.0deg); margin-left: 0.02px; } 37.5% { transform: rotate(-12.0deg); margin-left: 0.06px; } 43.75% { transform: rotate(-12.0deg); margin-left: 0.12px; } 50% { transform: rotate(-12.0deg); margin-left: 0.2px; } 56.25% { transform: rotate(-19.65deg); margin-left: 0.28px; } 62.5% { transform: rotate(-26.14deg); margin-left: 0.34px; } 68.75% { transform: rotate(-30.48deg); margin-left: 0.38px; } 75% { transform: rotate(-32.0deg); margin-left: 0.4px; } 81.25% { transform: rotate(-30.48deg); margin-left: 0.38px; } 87.5% { transform: rotate(-26.14deg); margin-left: 0.34px; } 93.75% { transform: rotate(-19.65deg); margin-left: 0.28px; } 100% { transform: rotate(-12.0deg); margin-left: 0.2px; } }
+  @keyframes bob_main { 0% { transform: translateY(-0.0px); margin-left: 0.2px; } 6.25% { transform: translateY(-2.83px); margin-left: 0.28px; } 12.5% { transform: translateY(-4.0px); margin-left: 0.34px; } 18.75% { transform: translateY(-2.83px); margin-left: 0.38px; } 25% { transform: translateY(-0.0px); margin-left: 0.4px; } 31.25% { transform: translateY(-2.83px); margin-left: 0.38px; } 37.5% { transform: translateY(-4.0px); margin-left: 0.34px; } 43.75% { transform: translateY(-2.83px); margin-left: 0.28px; } 50% { transform: translateY(-0.0px); margin-left: 0.2px; } 56.25% { transform: translateY(-2.83px); margin-left: 0.12px; } 62.5% { transform: translateY(-4.0px); margin-left: 0.06px; } 68.75% { transform: translateY(-2.83px); margin-left: 0.02px; } 75% { transform: translateY(-0.0px); margin-left: 0.0px; } 81.25% { transform: translateY(-2.83px); margin-left: 0.02px; } 87.5% { transform: translateY(-4.0px); margin-left: 0.06px; } 93.75% { transform: translateY(-2.83px); margin-left: 0.12px; } 100% { transform: translateY(-0.0px); margin-left: 0.2px; } }
+
+  .fig.css-gpu [data-j],
+  .fig.css-main [data-j] {
+    animation-duration: var(--cycle);
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+  }
+
+  .fig.css-gpu [data-j="hipA"] { animation-name: hipA; }
+  .fig.css-gpu [data-j="hipB"] { animation-name: hipB; }
+  .fig.css-gpu [data-j="kneeA"] { animation-name: kneeA; }
+  .fig.css-gpu [data-j="kneeB"] { animation-name: kneeB; }
+  .fig.css-gpu [data-j="footA"] { animation-name: footA; }
+  .fig.css-gpu [data-j="footB"] { animation-name: footB; }
+  .fig.css-gpu [data-j="shoulderA"] { animation-name: shoulderA; }
+  .fig.css-gpu [data-j="shoulderB"] { animation-name: shoulderB; }
+  .fig.css-gpu [data-j="elbowA"] { animation-name: elbowA; }
+  .fig.css-gpu [data-j="elbowB"] { animation-name: elbowB; }
+  .fig.css-gpu [data-j="bob"] { animation-name: bob; }
+
+  .fig.css-main [data-j="hipA"] { animation-name: hipA_main; }
+  .fig.css-main [data-j="hipB"] { animation-name: hipB_main; }
+  .fig.css-main [data-j="kneeA"] { animation-name: kneeA_main; }
+  .fig.css-main [data-j="kneeB"] { animation-name: kneeB_main; }
+  .fig.css-main [data-j="footA"] { animation-name: footA_main; }
+  .fig.css-main [data-j="footB"] { animation-name: footB_main; }
+  .fig.css-main [data-j="shoulderA"] { animation-name: shoulderA_main; }
+  .fig.css-main [data-j="shoulderB"] { animation-name: shoulderB_main; }
+  .fig.css-main [data-j="elbowA"] { animation-name: elbowA_main; }
+  .fig.css-main [data-j="elbowB"] { animation-name: elbowB_main; }
+  .fig.css-main [data-j="bob"] { animation-name: bob_main; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fig.css-gpu [data-j],
+    .fig.css-main [data-j] { animation: none; }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Readings                                                            */
+  /* ------------------------------------------------------------------ */
+
+  .big {
+    display: block;
+    font-size: var(--big);
+    line-height: 0.94;
+    font-weight: 400;
+    letter-spacing: -0.045em;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+  }
+
+  .is-none { color: var(--fg-faint); }
+  .is-block { color: var(--signal); }
+
+  .vitals > :last-child { grid-column: span 2; }
+
+  .counts {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .counts b { color: var(--fg); font-weight: 500; }
+
+  .note {
+    margin: 12px 0 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--fg-dim);
+    padding-left: 14px;
+    border-left: 1px solid var(--signal);
+    max-width: 68ch;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 220ms ease;
+  }
+
+  .note.on { visibility: visible; opacity: 1; }
+  .note b { color: var(--fg); font-weight: 500; }
+  .note code { font-family: var(--mono); font-size: 11.5px; }
+  @media (prefers-reduced-motion: reduce) { .note { transition: none; } }
+
+  /* ------------------------------------------------------------------ */
+  /* Controls                                                            */
+  /* ------------------------------------------------------------------ */
+
+  .controls {
+    padding: clamp(14px, 1.6vw, 20px) var(--pad);
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    column-gap: var(--gutter);
+    row-gap: clamp(14px, 1.8vw, 20px);
+    align-items: start;
+  }
+
+  .field:first-child { grid-column: span 2; }
+  .field > .key { margin-bottom: 10px; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  button {
+    font: inherit;
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--fg);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 0;
+    padding: 9px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+  }
+
+  button:hover { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+
+  .toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--fg-dim);
+    cursor: pointer;
+  }
+
+  .toggle input { accent-color: var(--fg); margin: 2px 0 0; }
+  .toggle code { font-family: var(--mono); font-size: 11.5px; color: var(--fg); }
+
+  @media (max-width: 900px) {
+    .band { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stage { grid-template-columns: minmax(0, 1fr); }
+    .vitals > :last-child { grid-column: 1 / -1; }
+    .note { display: none; }
+    .note.on { display: block; visibility: visible; opacity: 1; }
+    .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .field:first-child, .field:last-child { grid-column: 1 / -1; }
+  }
+
+  @media (max-width: 1100px) {
+    .stage { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  @media (max-width: 640px) {
+    .trio { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<section class="band stage">
+  <p class="lede">Three walkers, <em>one gait</em>. Only one is off this thread.</p>
+
+  <div class="trio">
+    <figure class="card">
+      <div class="fig js" id="jsFig">
+        <div class="ground"></div>
+        <div class="body" data-j="bob">
+          <div class="head"></div>
+          <div class="torso"></div>
+          <div class="limb arm far" data-j="shoulderB"><div class="seg forearm" data-j="elbowB"></div></div>
+          <div class="limb leg far" data-j="hipB">
+            <div class="seg shin" data-j="kneeB"><div class="foot" data-j="footB"></div></div>
+          </div>
+          <div class="limb arm" data-j="shoulderA"><div class="seg forearm" data-j="elbowA"></div></div>
+          <div class="limb leg" data-j="hipA">
+            <div class="seg shin" data-j="kneeA"><div class="foot" data-j="footA"></div></div>
+          </div>
+        </div>
+      </div>
+      <figcaption><b>Driven by JavaScript</b>requestAnimationFrame, posed on the main thread</figcaption>
+    </figure>
+
+    <figure class="card">
+      <div class="fig css-main">
+        <div class="ground"></div>
+        <div class="body" data-j="bob">
+          <div class="head"></div>
+          <div class="torso"></div>
+          <div class="limb arm far" data-j="shoulderB"><div class="seg forearm" data-j="elbowB"></div></div>
+          <div class="limb leg far" data-j="hipB">
+            <div class="seg shin" data-j="kneeB"><div class="foot" data-j="footB"></div></div>
+          </div>
+          <div class="limb arm" data-j="shoulderA"><div class="seg forearm" data-j="elbowA"></div></div>
+          <div class="limb leg" data-j="hipA">
+            <div class="seg shin" data-j="kneeA"><div class="foot" data-j="footA"></div></div>
+          </div>
+        </div>
+      </div>
+      <figcaption><b>Driven by CSS</b>keyframes that also touch <code>margin</code>, so they stay on the main thread</figcaption>
+    </figure>
+
+    <figure class="card">
+      <div class="fig css-gpu">
+        <div class="ground"></div>
+        <div class="body" data-j="bob">
+          <div class="head"></div>
+          <div class="torso"></div>
+          <div class="limb arm far" data-j="shoulderB"><div class="seg forearm" data-j="elbowB"></div></div>
+          <div class="limb leg far" data-j="hipB">
+            <div class="seg shin" data-j="kneeB"><div class="foot" data-j="footB"></div></div>
+          </div>
+          <div class="limb arm" data-j="shoulderA"><div class="seg forearm" data-j="elbowA"></div></div>
+          <div class="limb leg" data-j="hipA">
+            <div class="seg shin" data-j="kneeA"><div class="foot" data-j="footA"></div></div>
+          </div>
+        </div>
+      </div>
+      <figcaption><b>Driven by CSS</b><code>transform</code> only, handed to the compositor</figcaption>
+    </figure>
+  </div>
+</section>
+
+<header class="masthead">
+  <h1 class="wordmark">Walkers</h1>
+  <div class="masthead__meta"><span id="fps">&mdash;</span></div>
+</header>
+
+<main>
+  <section class="band vitals">
+    <div>
+      <span class="key">Last frame</span>
+      <span class="big is-none" id="last">&mdash;</span>
+    </div>
+
+    <div>
+      <span class="key">Worst frame since reset</span>
+      <span class="big is-none" id="worst">&mdash;</span>
+    </div>
+
+    <div>
+      <div class="counts">
+        <span>Frames over 50 ms</span>
+        <b id="janks">0</b>
+      </div>
+      <p class="note" id="note">
+        Both red walkers stopped. The middle one is CSS as well &mdash; but an animation whose keyframes
+        touch even one property the compositor cannot handle runs entirely on this thread, so it waits for a
+        long task exactly like the hand-written one does.
+      </p>
+    </div>
+  </section>
+</main>
+
+<section class="controls">
+  <div class="field">
+    <span class="key">Block the main thread</span>
+    <div class="actions">
+      <button type="button" data-block="100">Block 100 ms</button>
+      <button type="button" data-block="300">Block 300 ms</button>
+      <button type="button" data-block="1000">Block 1000 ms</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <span class="key">Readings</span>
+    <div class="actions">
+      <button type="button" id="reset">Reset</button>
+    </div>
+  </div>
+
+</section>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const NUM = new Intl.NumberFormat('en-US');
+  const fmtMs = (v) => NUM.format(Math.round(v)) + ' ms';
+  const EMPTY = '—';
+
+  // -------------------------------------------------------------------
+  // The gait. One set of functions here; the stylesheet holds the same
+  // curves sampled every 6.25% of the cycle, so both walkers strike the
+  // same pose at the same phase and any difference on screen is down to
+  // what is driving them, not to how they were authored.
+  // -------------------------------------------------------------------
+  // The figures face right, and a positive rotation swings a limb's far end
+  // backward, so forward is negative. The knee may only flex on the forward
+  // swing -- flex it on the drive instead and the walk reads as backwards --
+  // and the elbow may only flex forward, never behind the upper arm.
+  const hip = (p) => 26 * Math.sin(p);
+  const knee = (p) => 52 * Math.max(0, -Math.cos(p));
+  const foot = (p) => -0.9 * (hip(p) + knee(p));
+  const shoulder = (p) => -22 * Math.sin(p);
+  const elbow = (p) => -(12 + 20 * Math.max(0, Math.sin(p)));
+  const bob = (p) => -Math.abs(Math.sin(p * 2)) * 4;
+
+  const CYCLE_MS = 900;
+  const PI = Math.PI;
+
+  // Both walkers have to share a phase origin. The stylesheet's clock starts
+  // whenever the animation is first applied, a few ms after navigation; the
+  // script's would start at zero. Left alone they walk permanently out of
+  // step -- at a 900 ms cycle even 50 ms of drift is 20 degrees of hip --
+  // and that difference has nothing to do with which thread is driving.
+  // So the stylesheet owns the clock and the script reads its start time.
+  const cssJoint = document.querySelector('.fig.css-gpu [data-j="hipA"]');
+  let originMs = null;
+  let originTries = 0;
+
+  function phaseOrigin() {
+    if (originMs !== null) return originMs;
+    // startTime reads null until the animation actually starts, so this
+    // retries -- but bounded, rather than allocating every frame forever on
+    // a browser that never reports one. This loop is the thing under test.
+    if (!cssJoint || !cssJoint.getAnimations || ++originTries > 120) {
+      originMs = 0;
+      return originMs;
+    }
+    const anim = cssJoint.getAnimations()[0];
+    const start = anim && anim.startTime;
+    // startTime is a plain number today and a CSSNumberish in newer specs.
+    const value = typeof start === 'number' ? start : (start && start.value);
+    if (typeof value === 'number' && isFinite(value)) originMs = value;
+    return originMs === null ? 0 : originMs;
+  }
+
+  const joints = {};
+  for (const el of $('jsFig').querySelectorAll('[data-j]')) joints[el.dataset.j] = el;
+
+  const rotate = (name, deg) => { joints[name].style.transform = 'rotate(' + deg + 'deg)'; };
+
+  const lastEl = $('last');
+  const worstEl = $('worst');
+  const janksEl = $('janks');
+  const noteEl = $('note');
+  const fpsEl = $('fps');
+
+  let last = performance.now();
+  let worst = 0;
+  let janks = 0;
+  let frames = 0;
+  let fpsAt = last;
+
+  function frame(now) {
+    const delta = now - last;
+    last = now;
+
+    lastEl.textContent = fmtMs(delta);
+    lastEl.className = 'big ' + (delta > 50 ? 'is-block' : '');
+
+    if (delta > 50) janksEl.textContent = NUM.format(++janks);
+
+    if (delta > worst) {
+      worst = delta;
+      worstEl.textContent = fmtMs(worst);
+      worstEl.className = 'big ' + (worst > 50 ? 'is-block' : '');
+      noteEl.classList.toggle('on', worst > 50);
+    }
+
+    frames++;
+    if (now - fpsAt > 500) {
+      fpsEl.textContent = Math.round((frames * 1000) / (now - fpsAt)) + ' fps';
+      frames = 0;
+      fpsAt = now;
+    }
+
+    // Eleven writes, every frame, every one of them needing this thread.
+    // None of them land while a long task is running.
+    const p = ((now - phaseOrigin()) / CYCLE_MS) * PI * 2;
+    rotate('hipA', hip(p));
+    rotate('kneeA', knee(p));
+    rotate('footA', foot(p));
+    rotate('hipB', hip(p + PI));
+    rotate('kneeB', knee(p + PI));
+    rotate('footB', foot(p + PI));
+    rotate('shoulderA', shoulder(p));
+    rotate('elbowA', elbow(p));
+    rotate('shoulderB', shoulder(p + PI));
+    rotate('elbowB', elbow(p + PI));
+    joints.bob.style.transform = 'translateY(' + bob(p) + 'px)';
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  function block(ms) {
+    const end = performance.now() + ms;
+    let sink = 0;
+    while (performance.now() < end) {
+      for (let i = 0; i < 3000; i++) sink += Math.sqrt(i * 1.0001);
+    }
+    return sink;
+  }
+
+  for (const btn of document.querySelectorAll('[data-block]')) {
+    btn.addEventListener('click', () => block(Number(btn.dataset.block)));
+  }
+
+  $('reset').addEventListener('click', () => {
+    worst = 0;
+    janks = 0;
+    worstEl.textContent = EMPTY;
+    worstEl.className = 'big is-none';
+    lastEl.textContent = EMPTY;
+    lastEl.className = 'big is-none';
+    janksEl.textContent = '0';
+    noteEl.classList.remove('on');
+  });
+
+})();
+</script>
+</body>
+</html>
